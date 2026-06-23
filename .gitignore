@@ -1,0 +1,43 @@
+# ROS 2 build artifacts
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+*.bak*
+*.save
+*:Zone.Identifier
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Large runtime data
+rosbags/
+bags/
+*.bag
+*.db3
+*.mcap
+
+# Large media by default
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Secrets/local config
+.env
+.env.*
