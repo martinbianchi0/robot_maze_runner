@@ -55,14 +55,27 @@ Todo parametrizable, nada hardcodeado.
 
 | Componente | Decisión inicial | Razón |
 |---|---|---|
-| Mapa navegable | umbral ocupado/libre + tratar desconocido como no transitable en sim | entrega segura |
+| Mapa navegable | umbral ocupado/libre; **tratamiento de `unknown` configurable** (default no transitable) | si el mapa de Parte A queda incompleto, tratar unknown como bloqueado puede tapar todos los caminos (review Martín) |
 | Inflado de obstáculos | radio = radio robot + margen, configurable | robot tiene tamaño y error de control/localización |
+| **Capa dinámica** | costmap = mapa estático (Parte A, inmutable) **+** capa temporal de obstáculos del LIDAR | un obstáculo móvil NO debe escribirse permanente sobre el mapa original (review Martín) |
 | Localización | MCL / filtro de partículas sobre grilla, inicializado con `/initialpose` | robusto, conectado con TP3/TP5 |
-| Planner | A* sobre grilla inflada; Theta* si el camino sale muy cuadriculado | simple, eficiente, defendible |
-| Path following | Pure Pursuit (Tutorial 12) | práctico, ya explicado en clase |
+| Planner | A* sobre costmap inflado; Theta* si el camino sale muy cuadriculado | simple, eficiente, defendible |
+| Path following | Pure Pursuit con **límites de v y ω** y reducción de velocidad en curvas/cerca de obstáculos | si el path pasa cerca de pared y el robot recorta, se choca (review Martín) |
 | Ángulo final | rotación in-place al llegar a la posición | la consigna exige posición Y orientación |
-| Re-planning | simple: detecto bloqueo → marco celdas ocupadas → replanifico | defendible y suficiente |
+| Re-planning | detecto bloqueo → marco celdas en la **capa dinámica** → replanifico | no contamina el mapa estático |
 | Velocidades | conservadoras | la lógica luego va al robot real (Parte C) |
+
+### Frames y mensajes (definidos desde el inicio)
+
+Para no romper la integración entre localización, control y RViz, se fijan desde el arranque (review Martín):
+
+- **Frames**: `map` → `odom` → `base_link`/`base_footprint` → `laser`.
+- **Mensajes**:
+  - planner publica `nav_msgs/Path` en `/planned_path`;
+  - follower consume `/planned_path` y publica `geometry_msgs/Twist` en `/cmd_vel`;
+  - localización publica `/belief` (`PoseStamped`) y `/particles` (`PoseArray`);
+  - costmap como `nav_msgs/OccupancyGrid`.
+- Todo con mensajes estándar (coherente con la decisión de Parte A de no usar `custom_msgs`).
 
 ## 5. Máquina de estados
 
@@ -96,7 +109,7 @@ Cada etapa tiene una prueba mínima antes de integrar.
 - Goal desde `/goal_pose` → planificar → seguir → llegar a posición y ángulo final.
 
 ### Etapa B5 — Obstáculos y re-planning (Test B4)
-- Detectar obstáculo no mapeado con LIDAR en vivo, frenar, marcar ocupado, re-planificar.
+- Detectar obstáculo no mapeado con LIDAR en vivo, frenar, marcarlo en la **capa dinámica** (no en el mapa estático), re-planificar.
 
 ### Etapa B6 — Sistema completo + máquina de estados (Test B5)
 - Integrar todo bajo la state machine. Probar en `custom_casa.launch.py` y `custom_casa_obs.launch.py`.
