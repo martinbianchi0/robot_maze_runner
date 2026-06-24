@@ -45,18 +45,33 @@ Por eso, **todos los topics, QoS, frames y velocidades son parámetros**, con pe
 
 ## 4. Percepción del cono rojo
 
-Estrategia inicial simple y defendible (procesamiento por color):
+Detección por color (cámara monocular):
 
 1. obtener imagen de la cámara;
 2. convertir a HSV;
 3. segmentar el rango de rojo (dos bandas, por el wraparound del Hue);
 4. limpiar la máscara (morfología);
 5. detectar contorno/blob y su centro;
-6. decidir si el cono está visible y estimar dirección/posición aproximada;
-7. **filtrar distractores**: descartar otros colores y blobs muy chicos.
+6. **filtrar distractores**: descartar otros colores y blobs muy chicos.
 
-Validación crítica: la detección reporta una coordenada estimada al planner, que genera una trayectoria válida que esquiva los muros reales.
-Ver el cono NO implica que el camino directo esté libre.
+### 4.1. De la detección al goal (review Martín, PR #3)
+
+Punto crítico: una cámara monocular + HSV **no da una coordenada global confiable**.
+Da sobre todo **dirección/bearing** y confianza visual.
+Para convertir eso en un goal navegable se necesita una estrategia explícita, en este orden de preferencia:
+
+- combinar la cámara con LIDAR/profundidad para estimar distancia;
+- usar el tamaño aparente del blob si se conoce el tamaño real del cono;
+- generar goals intermedios en dirección al cono y **validarlos contra el costmap**;
+- o usar la detección sólo para orientar la búsqueda y acercarse por etapas.
+
+Regla dura: **nunca "veo cono → mando `cmd_vel` directo hacia el blob"**.
+Todo goal generado por visión pasa SIEMPRE por el planner/costmap de la Parte B.
+Es justamente lo que pide la consigna: no atravesar paredes aunque el cono se vea por un hueco.
+
+### 4.2. Debug y evidencia
+
+Publicar la máscara y el centro del cono, y el estado de la máquina de misión, para guardar evidencia en el informe (review Martín).
 
 ## 5. Máquina de estados de misión
 
