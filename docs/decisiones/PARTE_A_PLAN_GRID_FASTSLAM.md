@@ -62,8 +62,17 @@ Todos los valores son parámetros, no se hardcodean (regla de AGENTS.md).
 
 ### Decisión sobre mensajes
 
-Se decide **portar el paquete `custom_msgs` (DeltaOdom, Belief) de TP5 a `tpfinal/src/`**.
-Motivo: la consigna exige que la entrega sea autocontenida y compile con `colcon build` sin dependencias externas no especificadas.
+Se decide **usar mensajes estándar de ROS 2, sin `custom_msgs`** (revisión de Martín, PR #1).
+Para todo lo que publica el nodo alcanza con `nav_msgs/OccupancyGrid` (`/map`), `geometry_msgs/PoseArray` (`/particles`), `nav_msgs/Path` y `geometry_msgs/PoseStamped` (`/belief`).
+Los deltas de odometría se calculan internamente; no hace falta exponerlos como mensaje custom.
+Motivo: menos dependencias y mantenimiento, y la entrega queda autocontenida igual.
+Sólo se introduciría un mensaje custom si aparece una necesidad clara que los estándar no cubran.
+
+### Decisión sobre `/odom` (ground truth)
+
+`/odom` (pose real) se usa **sólo para debug y evaluación** (comparar trayectoria real vs estimada en RViz).
+**No** entra como input del algoritmo: el mapeo y la estimación usan exclusivamente `/calc_odom` + `/scan` (revisión de Martín, PR #1).
+Si la lógica dependiera del ground truth, la solución no representaría el caso real del TP.
 
 ---
 
@@ -75,7 +84,7 @@ No se implementa "todo FastSLAM" de una.
 ### Etapa 0 — Scaffolding del paquete
 
 - Crear paquete `maze_slam` (ament_python) en `src/`.
-- Portar `custom_msgs` desde TP5 a `tpfinal/src/`.
+- Usar mensajes estándar (sin `custom_msgs`).
 - Crear `slam.launch.py` y una config `.rviz` que muestre `/scan`, `/odom`, `/calc_odom`, `/map`.
 - Verificar `colcon build --symlink-install` limpio.
 
@@ -103,20 +112,23 @@ Gate: si con pose conocida el mapa de `custom_casa` ya sale deforme, hay que cor
 - Publicar `/belief` (pose corregida), `/map` (mapa de la mejor partícula) y `/particles` (PoseArray para debug).
 - Comparar en RViz las trayectorias `/odom` (real), `/belief` (SLAM) y `/calc_odom` (odometría pura).
 
-### Etapa 4 — Rendimiento, Numba y GPU
+### Etapa 4 — Rendimiento (optimización OPCIONAL)
 
-Orden de optimización preferido:
+Requisito de viabilidad (revisión de Martín, PR #1): **la solución tiene que andar primero en CPU**, con mapa chico, pocas partículas (~30) y parámetros razonables, en tiempo razonable.
+Numba y GPU son optimizaciones **opcionales**, no la mitigación principal: la solución NO debe depender de la RTX para ser viable, porque eso nos ata demasiado y no representa un setup reproducible.
+
+Orden de optimización, sólo si hace falta más capacidad de partículas:
 
 1. Vectorizar en NumPy, sin loops sobre partículas ni rayos. Suele bastar.
-2. **Numba** para los hot loops que no se vectorizan bien (ray casting Bresenham por partícula, actualización de log-odds por celda): decorar con `@numba.njit` (probar `parallel=True` para paralelizar sobre partículas en CPU).
-3. GPU sólo si lo anterior no alcanza:
-   - Kernels custom con `numba.cuda` para el ray casting y la actualización de mapas, o
+2. **Numba** (opcional) para los hot loops que no se vectorizan bien (ray casting Bresenham, actualización de log-odds): `@numba.njit` (probar `parallel=True` para paralelizar sobre partículas en CPU).
+3. GPU (opcional, último recurso) si lo anterior no alcanza:
+   - Kernels custom con `numba.cuda`, o
    - mapas como tensor `(N, H, W)` en CuPy sobre la RTX 3090 (Ampere, mejor soportada que la RTX 5070 Blackwell), con distance transform vía `cupyx.scipy.ndimage.distance_transform_edt`.
    - En ambos casos, mantener los datos en GPU entre iteraciones para evitar transferencias host↔device.
 
 Cuello de botella restante: copia de N mapas en resampling (memory-bound). Mitigar resampleando con menos frecuencia.
 
-Numba, CuPy y/o PyTorch no están instalados todavía; instalar sólo lo que la Etapa 4 justifique.
+Numba, CuPy y/o PyTorch no están instalados todavía; instalar sólo lo que esta etapa opcional justifique.
 
 ### Etapa 5 — Mapa final y evidencia
 
