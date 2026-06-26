@@ -256,5 +256,66 @@ Si `n_eff_pre` se queda en N (no resamplea):
   cada scan → SLAM discrimina hipótesis.
 - ✅ Tuning hecho vía sweep de 4 configs (ver §6.5). Defaults: N=30,
   sigma_hit=0.07, αs=(0.3, 0.05, 0.2, 0.05).
-- ⏳ Etapa 4 (opcional): no se necesitó GPU (N=30 corre en CPU sin sufrir).
+- 🧪 **Scan-matching local implementado pero default OFF** (ver §9). La
+  función `scan_match_local` (correlative grid search vectorizado en NumPy)
+  pasa unit tests con error ≤ step. La integración con `ref_dt` compartida
+  colapsa diversidad de partículas y diverge en sim — necesita per-particle
+  DT o improved proposal de Grisetti para ser estable. Se deja en el código
+  para iterar con rosbag real (Parte C). Activar: `scan_match:=true`.
+- 🧪 **Backend GPU detectable** (`backend: auto/cpu/gpu`). Detecta CuPy y
+  cae a NumPy si no está instalado o no hay GPU. Por ahora el algoritmo
+  corre idéntico en ambos backends; el path GPU se enchufa cuando convenga
+  para N alto en Parte C.
 - ⏳ Etapa 5: falta recorrido largo + evidencia "linda" para informe.
+
+---
+
+## 9. Scan-matching local (experimental, default OFF)
+
+### Qué es
+
+Antes de pesar las partículas, hace una búsqueda determinística en una ventana
+chica `(dx, dy, dθ)` alrededor de la pose actual de cada partícula, eligiendo
+la que minimiza la suma de distancias del scan al likelihood field. Es la
+técnica de **correlative scan matching** (gmapping/Cartographer).
+
+### Cómo activar
+
+```bash
+ros2 launch maze_slam fastslam.launch.py \
+  --ros-args -p scan_match:=true
+```
+
+Parámetros:
+- `match_win_xy` (0.10 m) — ventana de búsqueda en x,y.
+- `match_step_xy` (0.02 m) — paso.
+- `match_win_th_deg` (3°) — ventana en θ.
+- `match_step_th_deg` (1°) — paso.
+- `match_reg_xy` (50) — prior gaussiano débil sobre xy.
+- `match_reg_th` (50000) — prior fuerte sobre θ (evita over-rotation).
+- `match_min_occ` (500) — celdas ocupadas mínimas en el mapa antes de activar.
+
+### Por qué está OFF por default
+
+La implementación actual usa `ref_dt = distance_transform_edt` del mapa de la
+mejor partícula del paso anterior, **compartido** entre todas las partículas.
+Resultado: todas convergen al mismo óptimo local del scan-match → diversidad
+colapsa → particle depletion → belief diverge del ground truth.
+
+Lo correcto (FastSLAM improved proposal, Grisetti 2007) es:
+1. Cada partícula tiene su propia DT (costo: N× scipy DT = ~100 ms con N=20).
+2. Sampling con covarianza estimada del cost landscape alrededor del óptimo.
+
+Eso queda para una iteración posterior cuando empecemos Parte C con rosbag
+de cátedra y podamos validar contra trayectoria real.
+
+### Backend GPU
+
+Param `backend`:
+- `auto` (default): intenta CuPy + GPU, fallback a CPU.
+- `cpu`: NumPy / scipy.
+- `gpu`: CuPy, lanza si no está disponible.
+
+Hoy el path GPU está **detectado pero no enchufado al loop interno** (no se gana
+nada en CPU sub-30 partículas). Cuando lo necesitemos para N=200+ o per-particle
+DT, el branch ya está cableado en `get_backend()`.

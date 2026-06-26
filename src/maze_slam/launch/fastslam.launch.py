@@ -35,6 +35,21 @@ def generate_launch_description():
                 'alpha2': 0.05,
                 'alpha3': 0.2,
                 'alpha4': 0.05,
+                # Scan-matching local: implementado y funcional unit-test, pero
+                # la version con ref_dt compartida diverge en sim al colapsar
+                # diversidad de particulas. Default OFF — para activar hacen
+                # falta per-particle DT o improved proposal con covarianza
+                # estimada (Grisetti). Ver issue/TODO en grid_fastslam.py.
+                'scan_match': False,
+                'match_win_xy': 0.10,
+                'match_step_xy': 0.02,
+                'match_win_th_deg': 3.0,
+                'match_step_th_deg': 1.0,
+                'match_reg_xy': 50.0,
+                'match_reg_th': 50000.0,
+                'match_min_occ': 500,
+                'min_range': 0.12,
+                'backend': 'auto',
                 'publish_period_s': 1.0,
             }],
         ),

@@ -5,6 +5,36 @@ import numpy as np
 from geometry_msgs.msg import Quaternion
 
 
+# ── Backend NumPy/CuPy (GPU opcional, fallback automatico a CPU) ─────────────
+
+def get_backend(prefer='auto'):
+    """Devuelve (xp, dt_edt, name).
+
+    prefer:
+      'auto' -> intenta CuPy, cae a NumPy si no esta o no hay GPU.
+      'cpu'  -> NumPy / scipy siempre.
+      'gpu'  -> CuPy, lanza si no se puede.
+    """
+    from scipy.ndimage import distance_transform_edt as _dt_cpu
+
+    def cpu():
+        return np, _dt_cpu, 'cpu'
+
+    if prefer == 'cpu':
+        return cpu()
+
+    try:
+        import cupy as cp
+        from cupyx.scipy.ndimage import distance_transform_edt as _dt_gpu
+        # smoke test: pequena operacion en GPU
+        _ = cp.asarray([0.0, 1.0]).sum()
+        return cp, _dt_gpu, 'gpu'
+    except Exception as e:
+        if prefer == 'gpu':
+            raise RuntimeError(f'GPU pedida pero CuPy no disponible: {e}')
+        return cpu()
+
+
 # ── Trigonometria / quaterniones ──────────────────────────────────────────────
 
 def wrap_angle(a):
@@ -133,6 +163,109 @@ def update_map_from_scan(L, robot_x, robot_y, robot_yaw,
         else:
             L[cy[-1], cx[-1]] = np.clip(L[cy[-1], cx[-1]] + l_free,
                                          -l_clip, l_clip)
+
+
+# ── Scan-matching local (correlative grid search) ─────────────────────────────
+
+def scan_match_local(px, py, pth, scan_xy_robot, dt_grid,
+                     origin_x, origin_y, res,
+                     win_xy=0.10, step_xy=0.02,
+                     win_th=None, step_th=None,
+                     reg_xy=10.0, reg_th=2000.0):
+    """Busca (dx, dy, dth) en una ventana local que minimiza el costo del scan
+    contra el likelihood field (distance transform en celdas).
+
+    Implementa correlative scan-matching estilo gmapping/Grisetti: grid search
+    determinístico chico alrededor de la pose actual. Vectorizado sobre los
+    candidatos.
+
+    Parametros:
+      px, py, pth: pose actual de la particula
+      scan_xy_robot: (n, 2) endpoints del scan en frame del robot
+      dt_grid: (H, W) distance transform en celdas (no metros)
+      origin_x, origin_y, res: parametros de la grilla
+      win_xy: ventana en x,y (metros, default 10cm)
+      step_xy: paso en x,y (metros, default 2cm)
+      win_th: ventana en theta (rad, default 5°)
+      step_th: paso en theta (rad, default 1°)
+      reg_xy: penalizacion por (dx,dy) — actua como prior gaussiano (sigma~5cm).
+              Mas alto = mas confianza en la pose original (motion model).
+      reg_th: penalizacion por dth — separada porque la escala es distinta.
+              Mas alto = el scan-matching no rota tanto, evita over-correction
+              cuando hay walls solo en un lado del scan.
+
+    Retorna: (best_dx, best_dy, best_dth).
+    """
+    if win_th is None:
+        win_th = math.radians(5.0)
+    if step_th is None:
+        step_th = math.radians(1.0)
+    if scan_xy_robot.shape[0] == 0:
+        return 0.0, 0.0, 0.0
+
+    H, W = dt_grid.shape
+    dxs = np.arange(-win_xy, win_xy + step_xy * 0.5, step_xy, dtype=np.float64)
+    dys = np.arange(-win_xy, win_xy + step_xy * 0.5, step_xy, dtype=np.float64)
+    dths = np.arange(-win_th, win_th + step_th * 0.5, step_th, dtype=np.float64)
+    Nx, Ny, Nth = len(dxs), len(dys), len(dths)
+
+    rx = scan_xy_robot[:, 0]                    # (n,)
+    ry = scan_xy_robot[:, 1]
+    n = rx.shape[0]
+
+    # Pre-rotamos por dth: (Nth, n)
+    cth = np.cos(pth + dths)
+    sth = np.sin(pth + dths)
+    wx_rot = cth[:, None] * rx[None, :] - sth[:, None] * ry[None, :]
+    wy_rot = sth[:, None] * rx[None, :] + cth[:, None] * ry[None, :]
+
+    dt_max = float(dt_grid.max()) if dt_grid.size else 1.0
+    inv_res = 1.0 / res
+
+    # Iteramos por dth (mas barato que materializar (Nth*Nx*Ny, n))
+    best_cost = np.inf
+    best = (0.0, 0.0, 0.0)
+    for k in range(Nth):
+        # (Nx, Ny, n) endpoints en mundo para este dth
+        # x = px + dx + wx_rot[k], y = py + dy + wy_rot[k]
+        # Calculamos cells y los lookups vectorizados.
+        x_base = px + wx_rot[k]                # (n,)
+        y_base = py + wy_rot[k]
+        # candidatos (Nx, Ny):
+        # gx[i, j, b] = floor((x_base[b] + dxs[i] - ox) * inv_res)
+        gx = np.floor((x_base[None, None, :] + dxs[:, None, None] - origin_x) * inv_res).astype(np.int32)
+        gy = np.floor((y_base[None, None, :] + dys[None, :, None] - origin_y) * inv_res).astype(np.int32)
+        in_bounds = (gx >= 0) & (gx < W) & (gy >= 0) & (gy < H)
+        # Clamping para indexar; los OOB sumamos dt_max como penalizacion.
+        gxc = np.clip(gx, 0, W - 1)
+        gyc = np.clip(gy, 0, H - 1)
+        d = dt_grid[gyc, gxc]                  # (Nx, Ny, n)
+        oob = (~in_bounds).astype(np.float32) * dt_max
+        cost_xy = (np.where(in_bounds, d, 0.0) + oob).sum(axis=2)  # (Nx, Ny)
+        # Regularizacion separada para xy vs theta (escalas distintas):
+        # actua como prior gaussiano debil centrado en (0,0,0).
+        cost_xy = (cost_xy
+                   + reg_xy * (dxs[:, None] ** 2 + dys[None, :] ** 2)
+                   + reg_th * dths[k] ** 2)
+        idx_flat = int(np.argmin(cost_xy))
+        i = idx_flat // Ny
+        j = idx_flat % Ny
+        c = float(cost_xy[i, j])
+        if c < best_cost:
+            best_cost = c
+            best = (float(dxs[i]), float(dys[j]), float(dths[k]))
+    return best
+
+
+def scan_endpoints_robot_frame(ranges, angles, max_range, min_range=0.0):
+    """Convierte ranges en endpoints (x, y) en frame del robot, filtrando
+    lecturas invalidas (inf, nan, fuera de rango).
+    """
+    r = np.asarray(ranges, dtype=np.float64)
+    valid = np.isfinite(r) & (r > min_range) & (r < max_range)
+    rv = r[valid]
+    av = angles[valid]
+    return np.stack([rv * np.cos(av), rv * np.sin(av)], axis=1)
 
 
 # ── Motion model (Thrun, deltas de odom) ──────────────────────────────────────
