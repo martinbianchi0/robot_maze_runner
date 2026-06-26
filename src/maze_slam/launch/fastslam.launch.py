@@ -52,6 +52,12 @@ def generate_launch_description():
                 'match_min_occ': 500,
                 'min_range': 0.12,
                 'backend': 'auto',
+                # GPU prefereida en esta workstation: RTX 5070 (CUDA idx 1).
+                # Verificar mapping con nvidia-smi --query-gpu=index,name --format=csv
+                # vs el orden de CUDA (por compute capability). Cambiar a -1 para
+                # que CUDA elija default, o al idx que corresponda en tu equipo.
+                'gpu_device': 1,
+                'gpu_mem_limit_gb': 9.6,
                 'publish_period_s': 1.0,
             }],
         ),

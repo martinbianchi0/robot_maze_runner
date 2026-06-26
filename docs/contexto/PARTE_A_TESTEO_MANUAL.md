@@ -317,8 +317,31 @@ Param `backend`:
 - `gpu`: CuPy, lanza si no está disponible.
 
 Params adicionales:
-- `gpu_device` (-1 = default GPU; en este equipo usar `2` para la RTX 3060).
-- `gpu_mem_limit_gb` (0 = sin límite; recomendado `9.6` para 80% de los 12 GB).
+- `gpu_device` (-1 = default GPU; default del launch: `1` = RTX 5070 en este equipo).
+- `gpu_mem_limit_gb` (0 = sin límite; default `9.6` para 80% de los 12 GB).
+
+**Mapping de devices** en esta workstation:
+
+| nvidia-smi idx | GPU | CUDA idx |
+|---|---|---|
+| 0 | RTX 5070 (Blackwell) | **1** |
+| 1 | RTX 3090 (Ampere) | 0 |
+| 2 | RTX 3060 (Ampere) | 2 |
+
+CUDA reordena por compute capability (Ampere antes que Blackwell), así que el
+CUDA idx no coincide con `nvidia-smi`. Verificar con:
+```bash
+for d in 0 1 2; do CUDA_VISIBLE_DEVICES=$d python3 -c \
+  "import cupy as cp; print($d, cp.cuda.runtime.getDeviceProperties(0)['name'].decode())"; done
+```
+
+**Benchmark DT en este equipo** (cupyx.scipy.ndimage):
+
+| GPU | DT 320×320 single | DT batch N=30 |
+|---|---|---|
+| RTX 3060 | 0.17 ms | 7.5 ms |
+| RTX 5070 | 0.14 ms | 4.5 ms |
+| CPU (scipy) | 3.82 ms | 116 ms |
 
 El path GPU ahora **realmente corre las DT en GPU** vía `cupyx.scipy.ndimage`:
 - DT 320×320 single: CPU 3.82 ms → GPU 0.17 ms (~23× speedup).
