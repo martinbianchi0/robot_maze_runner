@@ -7,13 +7,15 @@ from geometry_msgs.msg import Quaternion
 
 # ── Backend NumPy/CuPy (GPU opcional, fallback automatico a CPU) ─────────────
 
-def get_backend(prefer='auto'):
+def get_backend(prefer='auto', device=None, mem_limit_gb=None):
     """Devuelve (xp, dt_edt, name).
 
     prefer:
       'auto' -> intenta CuPy, cae a NumPy si no esta o no hay GPU.
       'cpu'  -> NumPy / scipy siempre.
       'gpu'  -> CuPy, lanza si no se puede.
+    device:   indice de GPU a usar (None = default).
+    mem_limit_gb: limite de VRAM via memory pool (None = sin limite).
     """
     from scipy.ndimage import distance_transform_edt as _dt_cpu
 
@@ -24,15 +26,48 @@ def get_backend(prefer='auto'):
         return cpu()
 
     try:
+        import os
+        # Setear device via CUDA_VISIBLE_DEVICES funciona en todos los threads
+        # (cp.cuda.Device(n).use() es per-thread, no se hereda en ROS spin).
+        if device is not None and device >= 0:
+            os.environ['CUDA_VISIBLE_DEVICES'] = str(device)
         import cupy as cp
         from cupyx.scipy.ndimage import distance_transform_edt as _dt_gpu
-        # smoke test: pequena operacion en GPU
+        if mem_limit_gb is not None and mem_limit_gb > 0:
+            pool = cp.get_default_memory_pool()
+            pool.set_limit(size=int(mem_limit_gb * 1024**3))
+        # smoke test
         _ = cp.asarray([0.0, 1.0]).sum()
+        cp.cuda.runtime.deviceSynchronize()
         return cp, _dt_gpu, 'gpu'
     except Exception as e:
         if prefer == 'gpu':
             raise RuntimeError(f'GPU pedida pero CuPy no disponible: {e}')
         return cpu()
+
+
+def to_numpy(arr):
+    """Convierte array (numpy o cupy) a numpy."""
+    if hasattr(arr, 'get'):
+        return arr.get()
+    return np.asarray(arr)
+
+
+def compute_distance_transform(occ_bool, xp, dt_edt):
+    """Calcula DT del complemento de occ_bool (distancia a la celda ocupada
+    mas cercana). Acepta occ_bool en CPU o GPU. Devuelve DT en el backend xp.
+
+    Cast a uint8: cupyx.scipy.ndimage.distance_transform_edt usa _pba_2d que
+    no acepta bool dtype directo.
+    """
+    if xp is np:
+        return dt_edt(~occ_bool)
+    # NumPy 2.x agrego .device='cpu' a sus arrays, asi que hasattr no sirve
+    # para distinguir backend. Chequear el modulo del tipo es lo confiable.
+    if type(occ_bool).__module__ != 'cupy':
+        occ_bool = xp.asarray(occ_bool)
+    inv = (~occ_bool).astype(xp.uint8)
+    return dt_edt(inv)
 
 
 # ── Trigonometria / quaterniones ──────────────────────────────────────────────

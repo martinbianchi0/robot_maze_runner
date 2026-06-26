@@ -20,7 +20,6 @@ Outputs:
 
 import math
 import numpy as np
-from scipy.ndimage import distance_transform_edt
 
 import rclpy
 from rclpy.node import Node
@@ -34,7 +33,8 @@ from maze_slam.utils import (
     logodds_to_occupancy, update_map_from_scan,
     odom_deltas, sample_motion, systematic_resample, n_eff,
     world_to_grid_vec, L_CLIP,
-    scan_match_local, scan_endpoints_robot_frame, get_backend,
+    scan_match_local, scan_endpoints_robot_frame,
+    get_backend, to_numpy, compute_distance_transform,
 )
 
 
@@ -89,6 +89,12 @@ class GridFastSLAM(Node):
         self.declare_parameter('min_range', 0.12)            # filtro lecturas invalidas LIDAR
         # Backend: 'auto' (intenta GPU), 'cpu', 'gpu'
         self.declare_parameter('backend', 'auto')
+        self.declare_parameter('gpu_device', -1)         # -1 = default GPU
+        self.declare_parameter('gpu_mem_limit_gb', 0.0)  # 0 = sin limite
+        # Per-particle DT: cada particula matchea/pesa contra SU mapa (FastSLAM
+        # canonical / improved proposal). Requiere mas computo; con backend=gpu
+        # es factible para N=20-30.
+        self.declare_parameter('per_particle_dt', False)
 
         size_m = float(self.get_parameter('map_size_m').value)
         self.res = float(self.get_parameter('resolution').value)
@@ -119,14 +125,19 @@ class GridFastSLAM(Node):
         self.match_min_occ = int(self.get_parameter('match_min_occ').value)
         self.min_range = float(self.get_parameter('min_range').value)
         backend_pref = self.get_parameter('backend').value
-        # Resuelve backend numerico (CuPy con fallback a NumPy).
-        # Hoy CuPy se usa solo si esta instalado; el algoritmo corre identico
-        # en CPU. La eleccion explicita ayuda a Parte C / runs grandes.
+        gpu_device = int(self.get_parameter('gpu_device').value)
+        gpu_mem_limit = float(self.get_parameter('gpu_mem_limit_gb').value)
+        self.per_particle_dt = bool(self.get_parameter('per_particle_dt').value)
+        # Resuelve backend (CuPy + fallback a NumPy si no esta o falla).
         try:
-            _, _, self.backend_name = get_backend(backend_pref)
+            self.xp, self.dt_edt, self.backend_name = get_backend(
+                backend_pref,
+                device=gpu_device if gpu_device >= 0 else None,
+                mem_limit_gb=gpu_mem_limit if gpu_mem_limit > 0 else None,
+            )
         except Exception as e:
             self.get_logger().warn(f'backend "{backend_pref}" no disponible ({e}); usando cpu')
-            self.backend_name = 'cpu'
+            self.xp, self.dt_edt, self.backend_name = get_backend('cpu')
 
         self.H = int(round(size_m / self.res))
         self.W = self.H
@@ -182,7 +193,7 @@ class GridFastSLAM(Node):
             f'grid_fastslam: N={self.N}, grid={self.H}x{self.W} @ {self.res}m, '
             f'sigma_hit={self.sigma_hit}, beam_step={self.beam_step}, '
             f'scan_match={self.use_match} (win={self.match_win_xy}m/{math.degrees(self.match_win_th):.0f}°), '
-            f'backend={self.backend_name}'
+            f'backend={self.backend_name}, per_particle_dt={self.per_particle_dt}'
         )
 
     # ── Callbacks ────────────────────────────────────────────────────────────
@@ -253,35 +264,58 @@ class GridFastSLAM(Node):
         finite = np.isfinite(r_sub) & (r_sub > 0.0) & (r_sub < self.max_range)
         log_w = np.zeros(self.N, dtype=np.float64)
 
-        # Referencia comun: mapa de la mejor particula del paso anterior.
-        # Usada tanto para scan-matching como para weighting. Calcular una sola
-        # DT por scan es mucho mas barato que NxDT (improved proposal puro).
+        # Distance transform(s) usados para scan-match y weighting.
+        # Modo shared (default): una DT, mapa de la mejor particula del paso
+        #   anterior. Rapido pero pierde diversidad con scan-match activo.
+        # Modo per-particle: N DTs, una por particula contra su propio mapa.
+        #   Habilita improved proposal (Grisetti) y soluciona la divergencia
+        #   de scan-match. Justifica backend=gpu.
         ref_idx = int(np.argmax(self.weights))
-        ref_occ = self.maps[ref_idx] > 0.5
+        per_particle_dts = None
         ref_dt = None
-        if ref_occ.any() and finite.any():
-            ref_dt = distance_transform_edt(~ref_occ)
+        if self.per_particle_dt and finite.any():
+            # Calcula N DTs en backend (CPU loop o GPU). Mantenemos en CPU
+            # para indexar despues con NumPy (scan_match + weighting).
+            per_particle_dts = [None] * self.N
+            for i in range(self.N):
+                occ_i = self.maps[i] > 0.5
+                if occ_i.any():
+                    dt_i = compute_distance_transform(occ_i, self.xp, self.dt_edt)
+                    per_particle_dts[i] = to_numpy(dt_i)
+            # Para los outputs que usan "el mejor mapa" mas abajo:
+            ref_dt = per_particle_dts[ref_idx]
+        else:
+            ref_occ = self.maps[ref_idx] > 0.5
+            if ref_occ.any() and finite.any():
+                dt = compute_distance_transform(ref_occ, self.xp, self.dt_edt)
+                ref_dt = to_numpy(dt)
 
-        # Endpoints del scan en frame del robot, para scan-matching.
-        # Filtrados por min_range/max_range, sin inf/nan.
-        # Solo aplicamos scan-match cuando el mapa tiene suficiente estructura;
-        # con mapa sparse el match "tira" mal y diverge en rotacion.
+        # Endpoints del scan en frame del robot para scan-matching.
         scan_xy_robot = None
-        if (self.use_match and ref_dt is not None
-                and int(ref_occ.sum()) >= self.match_min_occ):
-            scan_xy_robot = scan_endpoints_robot_frame(
-                r_sub, a_sub, self.max_range, min_range=self.min_range
+        if self.use_match and finite.any():
+            # Con per-particle DT activamos scan-match aun con mapa sparse;
+            # la diversidad la preserva el per-particle (no colapsa al optimo
+            # compartido). Con shared DT esperamos a tener mapa "maduro".
+            ok_to_match = self.per_particle_dt or (
+                ref_dt is not None
+                and int((self.maps[ref_idx] > 0.5).sum()) >= self.match_min_occ
             )
+            if ok_to_match:
+                scan_xy_robot = scan_endpoints_robot_frame(
+                    r_sub, a_sub, self.max_range, min_range=self.min_range
+                )
 
         for i in range(self.N):
             px, py, pth = self.poses[i]
+            # DT contra el que vamos a comparar esta particula:
+            #   per-particle: su propia DT (None si su mapa esta vacio)
+            #   shared: la DT compartida (la del best del paso anterior)
+            dt_for_i = per_particle_dts[i] if self.per_particle_dt else ref_dt
 
-            # 1) Scan-matching local: corrige la pose de la particula contra
-            #    el mapa de referencia. Si esta deshabilitado o no hay mapa,
-            #    se saltea y la pose queda como vino del motion model.
-            if scan_xy_robot is not None and scan_xy_robot.shape[0] > 0:
+            # 1) Scan-matching local contra dt_for_i
+            if scan_xy_robot is not None and scan_xy_robot.shape[0] > 0 and dt_for_i is not None:
                 dx, dy, dth = scan_match_local(
-                    px, py, pth, scan_xy_robot, ref_dt,
+                    px, py, pth, scan_xy_robot, dt_for_i,
                     self.origin_x, self.origin_y, self.res,
                     win_xy=self.match_win_xy,
                     step_xy=self.match_step_xy,
@@ -297,8 +331,8 @@ class GridFastSLAM(Node):
                 self.poses[i, 1] = py
                 self.poses[i, 2] = pth
 
-            # 2) Weighting en la pose (corregida o no) contra la referencia comun.
-            if ref_dt is not None:
+            # 2) Weighting contra dt_for_i
+            if dt_for_i is not None:
                 rr = r_sub[finite]
                 aa = a_sub[finite]
                 ex = px + rr * np.cos(pth + aa)
@@ -307,12 +341,11 @@ class GridFastSLAM(Node):
                                            self.origin_x, self.origin_y, self.res)
                 valid = (gx >= 0) & (gx < self.W) & (gy >= 0) & (gy < self.H)
                 if valid.any():
-                    d_m = ref_dt[gy[valid], gx[valid]] * self.res
+                    d_m = dt_for_i[gy[valid], gx[valid]] * self.res
                     ll = -0.5 * (d_m / self.sigma_hit) ** 2
                     log_w[i] = float(ll.sum())
 
-            # 3) Actualizar mapa propio de la particula con el scan completo,
-            #    desde la pose corregida.
+            # 3) Actualizar mapa propio de la particula.
             update_map_from_scan(self.maps[i], px, py, pth,
                                  r_full, a_full, self.max_range,
                                  self.origin_x, self.origin_y, self.res)

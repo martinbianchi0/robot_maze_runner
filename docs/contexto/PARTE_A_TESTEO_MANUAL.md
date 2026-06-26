@@ -309,13 +309,53 @@ Lo correcto (FastSLAM improved proposal, Grisetti 2007) es:
 Eso queda para una iteración posterior cuando empecemos Parte C con rosbag
 de cátedra y podamos validar contra trayectoria real.
 
-### Backend GPU
+### Backend GPU (cableado, opt-in)
 
 Param `backend`:
-- `auto` (default): intenta CuPy + GPU, fallback a CPU.
+- `auto` (default): intenta CuPy + GPU, fallback a CPU si no hay.
 - `cpu`: NumPy / scipy.
 - `gpu`: CuPy, lanza si no está disponible.
 
-Hoy el path GPU está **detectado pero no enchufado al loop interno** (no se gana
-nada en CPU sub-30 partículas). Cuando lo necesitemos para N=200+ o per-particle
-DT, el branch ya está cableado en `get_backend()`.
+Params adicionales:
+- `gpu_device` (-1 = default GPU; en este equipo usar `2` para la RTX 3060).
+- `gpu_mem_limit_gb` (0 = sin límite; recomendado `9.6` para 80% de los 12 GB).
+
+El path GPU ahora **realmente corre las DT en GPU** vía `cupyx.scipy.ndimage`:
+- DT 320×320 single: CPU 3.82 ms → GPU 0.17 ms (~23× speedup).
+- DT batch N=30: CPU 116 ms → GPU 7.5 ms (~15× speedup).
+
+Con defaults actuales (shared ref DT, una DT por scan), el speedup neto en el
+loop es marginal porque el cuello de botella es el ray casting Python del
+`update_map_from_scan`, no la DT. La GPU rinde de verdad cuando se activa
+`per_particle_dt` (N DTs por scan), o cuando se sube N para tener más
+hipótesis simultáneas.
+
+### Instalación del backend GPU
+
+En el container:
+```bash
+pip3 install --user "cupy-cuda12x[ctk]" "scipy>=1.13"
+```
+- `cupy-cuda12x` matchea el driver CUDA del host (verificar con `nvidia-smi`).
+- `[ctk]` instala CUDA toolkit headers (necesarios para JIT de kernels).
+- Hay que subir scipy a ≥1.13 porque CuPy bumpea NumPy a 2.x y la scipy
+  vieja del sistema (1.8) no compatibiliza con NumPy 2.
+
+### Per-particle DT (`per_particle_dt`, experimental)
+
+Cuando está en `True`, cada partícula calcula su propia DT contra su propio
+mapa (FastSLAM canonical / improved proposal en estado puro). Es lo que
+justifica usar GPU.
+
+Default `False` porque en sim simple termina divergiendo igual que la versión
+con shared DT (cada partícula vive en su propia "realidad" y se autorefuerza).
+Para que ande bien necesita el sampling con covarianza estimada del cost
+landscape (Grisetti 2007), no solo argmin.
+
+### Per qué scan-match sigue OFF aún con GPU
+
+Probado con `per_particle_dt=True` + `scan_match=True` + GPU: el SLAM corre sin
+crashear, ~3 Hz, pero la belief sigue divergiendo del ground truth (~4 m off al
+final de un drive de 30s). El problema es algorítmico, no de cómputo — el
+scan-match naive (argmin del cost) sin proposal con covarianza pierde
+diversidad de hipótesis demasiado rápido.
