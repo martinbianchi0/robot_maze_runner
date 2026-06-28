@@ -21,7 +21,8 @@ class FollowerConfig:
     max_angular_rps: float = 0.30
     min_tracking_linear_mps: float = 0.025
     min_approach_linear_mps: float = 0.024
-    goal_tolerance_m: float = 0.09
+    goal_tolerance_m: float = 0.10
+    blocked_goal_tolerance_m: float = 0.12
     yaw_tolerance_rad: float = 0.35
     obstacle_stop_distance_m: float = 0.30
     obstacle_resume_distance_m: float = 0.36
@@ -148,13 +149,20 @@ class PathFollower:
             front_emergency_m < cfg.emergency_stop_distance_m
             and front_clearance_m < cfg.obstacle_resume_distance_m
         )
+        front_limited = front_clearance_m < cfg.obstacle_stop_distance_m
+        if (
+            dist_goal <= max(cfg.goal_tolerance_m, cfg.blocked_goal_tolerance_m)
+            and (confirmed_emergency or front_limited)
+        ):
+            self.state = STATE_GOAL_REACHED
+            return FollowerCommand(0.0, 0.0, self.state, len(path_xy) - 1, heading_error)
+
         if confirmed_emergency:
             if should_rotate_while_blocked:
                 return self._rotate_to_path_command(heading_error, target_i)
             self.state = STATE_BLOCKED_STOP
             return FollowerCommand(0.0, 0.0, self.state, target_i, heading_error)
 
-        front_limited = front_clearance_m < cfg.obstacle_stop_distance_m
         if front_limited:
             if should_rotate_while_blocked:
                 return self._rotate_to_path_command(heading_error, target_i)

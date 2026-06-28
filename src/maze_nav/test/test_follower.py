@@ -193,6 +193,19 @@ def test_follower_recovers_from_soft_front_obstacle_toward_open_side():
     assert cmd.angular < 0.0
 
 
+def test_follower_accepts_near_goal_when_last_centimeters_are_blocked():
+    cmd = follower().compute(
+        pose=(0.0, 0.0, 0.0),
+        path_xy=[(0.0, 0.0), (0.115, 0.0)],
+        front_clearance_m=0.28,
+        front_emergency_m=0.24,
+    )
+
+    assert cmd.state == STATE_GOAL_REACHED
+    assert cmd.linear == 0.0
+    assert cmd.angular == 0.0
+
+
 def test_follower_recovery_turns_without_creeping_forward():
     ctl = follower()
     path = [(0.0, 0.0), (1.0, 0.0)]

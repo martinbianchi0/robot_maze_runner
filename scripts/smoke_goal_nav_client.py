@@ -9,7 +9,7 @@ import time
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
-from nav_msgs.msg import Odometry, Path
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from std_msgs.msg import String
 
 
@@ -78,6 +78,7 @@ class SmokeClient:
         self.state = None
         self.latest_debug = None
         self.latest_cmd = None
+        self.costmap_seen = False
         self.path_len = 0
         self.latest_path_length_m = 0.0
         self.state_since = time.monotonic()
@@ -88,6 +89,7 @@ class SmokeClient:
         node.create_subscription(String, '/nav_debug', self._on_debug, 10)
         node.create_subscription(Twist, '/cmd_vel', self._on_cmd, 10)
         node.create_subscription(Path, '/planned_path', self._on_path, 10)
+        node.create_subscription(OccupancyGrid, '/global_costmap', self._on_costmap, 10)
 
     def _on_odom(self, msg):
         self.odom_xy = pose_xy_from_odom(msg)
@@ -110,11 +112,19 @@ class SmokeClient:
         self.path_len = len(msg.poses)
         self.latest_path_length_m = path_length_m(msg)
 
-    def wait_for_odom(self, timeout_s=20.0):
+    def _on_costmap(self, _msg):
+        self.costmap_seen = True
+
+    def wait_until_ready(self, timeout_s=30.0):
         start = time.monotonic()
         while time.monotonic() - start < timeout_s:
             rclpy.spin_once(self.node, timeout_sec=0.1)
-            if self.odom_xy is not None:
+            if (
+                self.odom_xy is not None
+                and self.latest_debug is not None
+                and self.costmap_seen
+                and self.goal_pub.get_subscription_count() > 0
+            ):
                 return True
         return False
 
@@ -134,8 +144,8 @@ class SmokeClient:
             rclpy.spin_once(self.node, timeout_sec=0.1)
 
     def run_goal(self, goal_spec, index):
-        if not self.wait_for_odom():
-            return False, {'error': 'no_odom'}
+        if not self.wait_until_ready():
+            return False, {'error': 'not_ready_for_goal'}
 
         goal = goal_spec['goal']
         expected = goal_spec['expected']

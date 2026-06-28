@@ -2,6 +2,7 @@
 
 import json
 import math
+import time
 from pathlib import Path as FilePath
 
 import numpy as np
@@ -18,6 +19,7 @@ from maze_nav.follower import (
     STATE_BLOCKED_STOP,
     STATE_GOAL_REACHED,
     STATE_IDLE,
+    STATE_ROTATE_TO_PATH,
     STATE_STUCK_RECOVERY,
     STATE_TRACK_PATH,
     STATE_WATCHDOG_STOP,
@@ -99,7 +101,8 @@ class MazeNavNode(Node):
         self.declare_parameter('lookahead_m', 0.20)
         self.declare_parameter('max_linear_mps', 0.06)
         self.declare_parameter('max_angular_rps', 0.30)
-        self.declare_parameter('goal_tolerance_m', 0.09)
+        self.declare_parameter('goal_tolerance_m', 0.10)
+        self.declare_parameter('blocked_goal_tolerance_m', 0.12)
         self.declare_parameter('yaw_tolerance_rad', 0.35)
         self.declare_parameter('align_final_yaw', False)
         self.declare_parameter('obstacle_stop_distance_m', 0.30)
@@ -217,6 +220,9 @@ class MazeNavNode(Node):
                 max_linear_mps=float(self.get_parameter('max_linear_mps').value),
                 max_angular_rps=float(self.get_parameter('max_angular_rps').value),
                 goal_tolerance_m=float(self.get_parameter('goal_tolerance_m').value),
+                blocked_goal_tolerance_m=float(
+                    self.get_parameter('blocked_goal_tolerance_m').value
+                ),
                 yaw_tolerance_rad=float(self.get_parameter('yaw_tolerance_rad').value),
                 obstacle_stop_distance_m=float(
                     self.get_parameter('obstacle_stop_distance_m').value
@@ -261,6 +267,10 @@ class MazeNavNode(Node):
         self.blocked_latched_reason = ''
         self.last_debug_log_time = 0.0
         self.last_debug_state = None
+        self.last_timer_wall_time = None
+        self.loop_period_ms = None
+        self.last_plan_duration_ms = None
+        self.last_scan_overlay_duration_ms = None
         self.diagnostic_log_period_s = float(
             self.get_parameter('diagnostic_log_period_s').value
         )
@@ -366,6 +376,15 @@ class MazeNavNode(Node):
             'pose_age_s': self._finite_or_none(pose_age_s),
             'scan_sectors': sectors,
             'map_source': self.map_source,
+            'perf': {
+                'last_plan_duration_ms': self._finite_or_none(
+                    self.last_plan_duration_ms
+                ),
+                'last_scan_overlay_duration_ms': self._finite_or_none(
+                    self.last_scan_overlay_duration_ms
+                ),
+                'loop_period_ms': self._finite_or_none(self.loop_period_ms),
+            },
         }
 
     def _publish_diagnostics(
@@ -521,6 +540,7 @@ class MazeNavNode(Node):
             self.need_replan = True
 
     def _update_scan_obstacle_overlay(self, pose, now):
+        perf_start = time.perf_counter()
         if (
             not self.use_scan_obstacle_overlay
             or self.static_costmap is None
@@ -611,6 +631,7 @@ class MazeNavNode(Node):
         self.costmap[inflated_overlay >= 50] = 100
         self.scan_overlay_cells = marked_cells
         self.last_scan_overlay_time = now
+        self.last_scan_overlay_duration_ms = (time.perf_counter() - perf_start) * 1000.0
 
         replan_period = float(self.get_parameter('scan_obstacle_replan_period_s').value)
         should_replan = (
@@ -699,10 +720,13 @@ class MazeNavNode(Node):
         self.path_pub.publish(msg)
 
     def _plan(self, pose):
+        perf_start = time.perf_counter()
         if self.costmap is None or self.grid_spec is None:
             self.get_logger().warn('goal nav requiere mapa/costmap')
+            self.last_plan_duration_ms = (time.perf_counter() - perf_start) * 1000.0
             return False
         if self.goal_pose is None:
+            self.last_plan_duration_ms = (time.perf_counter() - perf_start) * 1000.0
             return False
         start = world_to_grid(pose[0], pose[1], self.grid_spec)
         goal = world_to_grid(self.goal_pose[0], self.goal_pose[1], self.grid_spec)
@@ -722,6 +746,7 @@ class MazeNavNode(Node):
             self.get_logger().warn('start/goal fuera de espacio libre')
             self.path_xy = []
             self._publish_path([], 0.0)
+            self.last_plan_duration_ms = (time.perf_counter() - perf_start) * 1000.0
             return False
 
         path_cells = astar(self.costmap, start, goal, allow_unknown=self.allow_unknown)
@@ -729,6 +754,7 @@ class MazeNavNode(Node):
             self.get_logger().warn(f'A* no encontro camino start={start} goal={goal}')
             self.path_xy = []
             self._publish_path([], 0.0)
+            self.last_plan_duration_ms = (time.perf_counter() - perf_start) * 1000.0
             return False
 
         path_cells = limit_path_stride(path_cells, self.path_stride_cells)
@@ -738,6 +764,7 @@ class MazeNavNode(Node):
         self.need_replan = False
         self.follower.reset()
         self._reset_goal_progress()
+        self.last_plan_duration_ms = (time.perf_counter() - perf_start) * 1000.0
         self.get_logger().info(f'planned_path: {len(self.path_xy)} waypoints')
         return True
 
@@ -962,6 +989,11 @@ class MazeNavNode(Node):
             scan_age_s=scan_age,
         )
         progress_watch_states = (STATE_TRACK_PATH, STATE_STUCK_RECOVERY)
+        regression_watch_states = (
+            STATE_TRACK_PATH,
+            STATE_STUCK_RECOVERY,
+            STATE_ROTATE_TO_PATH,
+        )
         if cmd.state in progress_watch_states and self._goal_progress_blocked(
             now,
             pose,
@@ -985,7 +1017,7 @@ class MazeNavNode(Node):
                 reason='no_progress',
             )
             return
-        if cmd.state in progress_watch_states and self._goal_regression_blocked(now, pose):
+        if cmd.state in regression_watch_states and self._goal_regression_blocked(now, pose):
             self.blocked_latched = True
             self.blocked_latched_reason = 'goal_regression'
             self._publish_stop()
@@ -1022,6 +1054,11 @@ class MazeNavNode(Node):
             self._publish_stop()
 
     def _on_timer(self):
+        wall_now = time.perf_counter()
+        if self.last_timer_wall_time is not None:
+            self.loop_period_ms = (wall_now - self.last_timer_wall_time) * 1000.0
+        self.last_timer_wall_time = wall_now
+
         now = self._node_time_s()
         if (
             self.publish_loaded_map

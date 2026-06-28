@@ -24,7 +24,8 @@ def generate_launch_description():
         DeclareLaunchArgument('lookahead_m', default_value='0.20'),
         DeclareLaunchArgument('max_linear_mps', default_value='0.06'),
         DeclareLaunchArgument('max_angular_rps', default_value='0.30'),
-        DeclareLaunchArgument('goal_tolerance_m', default_value='0.09'),
+        DeclareLaunchArgument('goal_tolerance_m', default_value='0.10'),
+        DeclareLaunchArgument('blocked_goal_tolerance_m', default_value='0.12'),
         DeclareLaunchArgument('align_final_yaw', default_value='false'),
         DeclareLaunchArgument('obstacle_stop_distance_m', default_value='0.30'),
         DeclareLaunchArgument('emergency_stop_distance_m', default_value='0.16'),
@@ -92,6 +93,10 @@ def generate_launch_description():
                 ),
                 'goal_tolerance_m': ParameterValue(
                     LaunchConfiguration('goal_tolerance_m'),
+                    value_type=float,
+                ),
+                'blocked_goal_tolerance_m': ParameterValue(
+                    LaunchConfiguration('blocked_goal_tolerance_m'),
                     value_type=float,
                 ),
                 'align_final_yaw': ParameterValue(
