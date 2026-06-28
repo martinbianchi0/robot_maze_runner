@@ -36,6 +36,12 @@ Implementar `maze_nav` como paquete separado con dos modos:
   monotono de waypoints, estados explicitos y overlay dinamico de obstaculos
   detectados por LIDAR.
 
+El roadmap tecnico para convertir esta base en navegacion fuerte de demo esta
+documentado en
+[`docs/contexto/PARTE_B_PLAN_NAVEGACION_ROBUSTA.md`](../contexto/PARTE_B_PLAN_NAVEGACION_ROBUSTA.md).
+Ese documento separa capacidades, pruebas y objetivos chicos para no seguir
+trabajando con metas vagas como "hacer navegacion robusta".
+
 ## Consecuencias
 
 - La pose es parametrizable (`/odom`, `/calc_odom` o `/belief`) para `goal`.
@@ -151,6 +157,18 @@ La validacion principal para revisar PRs de Parte B es:
 ```bash
 ./scripts/smoke_nav_matrix.sh
 ```
+
+Esta matriz es el primer merge gate de Parte B, no la validacion final de demo.
+Hoy sirve para separar bugs de navegacion de problemas de mapa/TF/scan en
+`custom_casa`, pero falta expandirla hacia robustez real:
+
+- rutas largas de punta a punta;
+- curvas cerradas y esquinas con paredes cerca;
+- pasillos estrechos;
+- secuencias multi-goal sin reiniciar simulacion;
+- obstaculos no mapeados;
+- `custom_casa_obs.launch.py`;
+- recuperacion y bloqueo seguro ante no-progress.
 
 La matriz levanta `custom_casa` headless desde cero para cada caso, lanza
 `maze_nav` con YAML + `/odom`, manda un goal por `/goal_pose` y registra:
