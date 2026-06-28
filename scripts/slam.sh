@@ -4,9 +4,11 @@
 #   Ejemplo: ./scripts/slam.sh rviz:=false
 
 set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 source /opt/ros/humble/setup.bash
-cd ~/ros2_ws
+cd "${ROOT_DIR}"
 
 echo ">>> colcon build --packages-select maze_slam --symlink-install"
 colcon build --packages-select maze_slam --symlink-install
