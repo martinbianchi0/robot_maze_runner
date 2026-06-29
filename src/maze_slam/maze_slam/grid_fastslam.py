@@ -165,10 +165,17 @@ class GridFastSLAM(Node):
         self.last_spread_pre = 0.0
 
         # Subs / pubs
-        self.create_subscription(Odometry, odom_topic, self.cb_odom, 50)
+        # /calc_odom se publica BEST_EFFORT; con sub RELIABLE (default) no llega
+        # nada. BEST_EFFORT recibe de publicadores RELIABLE y BEST_EFFORT.
+        odom_qos = QoSProfile(
+            depth=50,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+        )
+        self.create_subscription(Odometry, odom_topic, self.cb_odom, odom_qos)
         self.create_subscription(LaserScan, scan_topic, self.cb_scan,
                                  qos_profile_sensor_data)
-        self.create_subscription(Odometry, truth_topic, self.cb_truth, 10)
+        self.create_subscription(Odometry, truth_topic, self.cb_truth, odom_qos)
 
         # /map necesita TRANSIENT_LOCAL (latching) para que map_saver_cli y
         # los consumidores tipo nav2 lo lean correctamente.

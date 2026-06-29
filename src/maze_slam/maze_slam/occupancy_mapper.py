@@ -53,7 +53,15 @@ class OccupancyMapper(Node):
         self.scan_angles = None
         self.scan_count = 0
 
-        self.create_subscription(Odometry, odom_topic, self.cb_odom, 50)
+        # /calc_odom se publica BEST_EFFORT; un sub RELIABLE (default) no recibe
+        # nada y el mapa sale vacio. BEST_EFFORT es compatible con publicadores
+        # RELIABLE (/odom) y BEST_EFFORT (/calc_odom), asi sirve para ambos.
+        odom_qos = QoSProfile(
+            depth=50,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+        )
+        self.create_subscription(Odometry, odom_topic, self.cb_odom, odom_qos)
         self.create_subscription(LaserScan, scan_topic, self.cb_scan,
                                  qos_profile_sensor_data)
         map_qos = QoSProfile(
