@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Mata Gazebo, RViz, teleop y nodos ROS huerfanos. Util cuando algo queda colgado.
-pkill -f "gz(server|client)"   2>/dev/null || true
-pkill -f gzserver              2>/dev/null || true
-pkill -f gzclient              2>/dev/null || true
-pkill -f rviz2                 2>/dev/null || true
-pkill -f teleop_keyboard       2>/dev/null || true
-pkill -f fastslam_node         2>/dev/null || true
-pkill -f "ros2 bag play"       2>/dev/null || true
-pkill -f "ros2 launch"         2>/dev/null || true
-pkill -f "ros2 run"            2>/dev/null || true
+# Mata Gazebo, RViz, teleop, el SLAM y los nodos de la sim que quedan huerfanos.
+# Importante: el nodo de la catedra (turtlebot3_custom_simulation) y robot_state_publisher
+# NO mueren solos al cortar el launch -> si no se matan, se acumulan varias instancias
+# publicando /calc_odom a la vez y el SLAM recibe odometria contradictoria (mapa roto).
+for pat in \
+    gzserver gzclient \
+    rviz2 \
+    teleop_keyboard \
+    fastslam_node \
+    turtlebot3_custom_simulation \
+    robot_state_publisher \
+    parameter_bridge \
+    "ros2 bag play" \
+    "ros2 launch" \
+    "ros2 run"; do
+    pkill -9 -f "$pat" 2>/dev/null || true
+done
+sleep 1
 echo "Limpieza ok."

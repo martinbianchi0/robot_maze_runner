@@ -10,6 +10,12 @@ set -e
 source "$(dirname "$0")/_common.sh"
 cd "$WS_DIR"
 
+# Limpieza automatica: mata Gazebo/nodos de sim previos. CLAVE en la casa, porque
+# el nodo de la catedra y robot_state_publisher NO mueren al cortar el launch -> sin
+# esto se acumulan varias instancias publicando /calc_odom y el mapa sale roto.
+bash "$WS_DIR/shs/kill_all.sh"
+sleep 0.5
+
 # Build incremental (por si tocaste el paquete de simulacion).
 "$WS_DIR/shs/build.sh"
 source "$INSTALL_BASE/local_setup.bash"
