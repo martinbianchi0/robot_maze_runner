@@ -1,4 +1,5 @@
-# ROS 2 build artifacts
+# ROS 2 build artifacts (taggeados por path en .colcon/, mas los clasicos)
+.colcon/
 build/
 install/
 log/
@@ -31,6 +32,23 @@ bags/
 *.bag
 *.db3
 *.mcap
+
+# Rosbags zipeados que vinieron con la consigna (Parte C)
+maps/*.zip
+maps/*.docx
+maps/offline_test.*
+
+# Bags extraidos/recuperados (pesados, se regeneran con shs/bag.sh a disco local)
+maps/laberinto/
+maps/laberinto_fix/
+maps/laberinto_conos/
+maps/aruco_estimation/
+
+# Mapas generados por el SLAM (se regeneran; el entregable se exporta aparte)
+maps/casa_slam.*
+maps/laberinto_slam.*
+maps/*.pgm
+maps/*.yaml
 
 # Large media by default
 *.mp4
