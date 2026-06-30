@@ -62,6 +62,8 @@ class FastSLAM:
         sm_iters=20,
         sm_lin0=0.05,
         sm_ang0=0.05,
+        sm_max_ang=0.20,   # rad (~11deg): tope de correccion del scan-match por update
+        sm_max_lin=0.20,   # m: idem lineal. Mas que esto = enganche ambiguo -> rechazar
         field_refresh=5,
     ):
         self.n = n_particles
@@ -82,6 +84,8 @@ class FastSLAM:
         self.sm_iters = sm_iters
         self.sm_lin0 = sm_lin0   # paso lineal inicial del hill-climb (m)
         self.sm_ang0 = sm_ang0   # paso angular inicial (rad)
+        self.sm_max_ang = sm_max_ang
+        self.sm_max_lin = sm_max_lin
         self.l_occ = l_occ
         self.l_free = l_free
         self.l_max = l_max
@@ -208,7 +212,16 @@ class FastSLAM:
                 ang_step *= 0.5
                 if lin < res * 0.5:
                     break
-        return bx - particle.x, by - particle.y, wrap_angle(bth - particle.theta)
+        dx = bx - particle.x
+        dy = by - particle.y
+        dth = wrap_angle(bth - particle.theta)
+        # El scan-match es un REFINADOR local, no un relocalizador. Si pide una
+        # correccion grande, casi seguro se engancho en una alineacion ambigua
+        # (p.ej. la sala simetrica rotada 90deg) -> la rechazamos. La odometria
+        # manda en esos casos, asi el mapa no salta de orientacion.
+        if abs(dth) > self.sm_max_ang or math.hypot(dx, dy) > self.sm_max_lin:
+            return 0.0, 0.0, 0.0
+        return dx, dy, dth
 
     def apply_correction(self, dx, dy, dth):
         for p in self.particles:
@@ -359,7 +372,7 @@ class FastSLAM:
     def best(self):
         return max(self.particles, key=lambda p: p.weight)
 
-    def best_sticky(self, prev_pid, ratio=0.7):
+    def best_sticky(self, prev_pid, ratio=0.5):
         """Devuelve la mejor particula con histeresis: si la del linaje `prev_pid`
         sigue viva y su peso es >= ratio * peso_max, la mantiene (evita que el mapa
         publicado salte entre hipotesis tick a tick). Si no, cambia a la de mayor peso."""
