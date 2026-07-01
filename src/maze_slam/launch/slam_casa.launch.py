@@ -30,15 +30,14 @@ def generate_launch_description():
                 'map_size': 250,        # 250 * 0.05 = 12.5 m (alcanza la casa)
                 'sigma_hit': 0.08,
                 'alpha1': 0.04, 'alpha2': 0.02, 'alpha3': 0.05, 'alpha4': 0.02,
-                # Scan-match ON (igual que el laberinto, que anda impecable). El
-                # /calc_odom de la casa integra la velocidad COMANDADA (no la real), asi
-                # que deriva al girar -> con scan-match OFF el mapa sale blob. El tope
-                # sm_max_ang limita la deriva rotacional en la sala simetrica. Si aun
-                # asi girara, probar odom_topic:=/odom (ground truth) para mapa perfecto.
+                # LIDAR del TB3: centrado y SIN rotar. Hay que pisar los defaults del
+                # nodo, que son los del TB4 (sensor_yaw=+90deg, sensor_x=-4cm) -> si no,
+                # el mapa de la casa sale rotado 90deg (era EXACTAMENTE este el bug).
+                'sensor_x': 0.0, 'sensor_y': 0.0, 'sensor_yaw': 0.0,
                 'use_scan_match': True,
-                'publish_tf': False,    # la catedra ya da map->odom en la casa
+                'publish_tf': False,    # la catedra ya da map->odom (identidad) en la casa
                 'scan_topic': '/scan',
-                'odom_topic': '/calc_odom',
+                'odom_topic': '/calc_odom',   # odometria ruidosa (SLAM de verdad)
                 'odom_frame': 'calc_odom',
                 'publish_rate': 4.0,
                 'maps_dir': 'maps',
