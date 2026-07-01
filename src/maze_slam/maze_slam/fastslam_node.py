@@ -30,7 +30,7 @@ from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Empty
+from std_msgs.msg import Empty, String
 from tf2_ros import TransformBroadcaster
 
 from maze_slam.fastslam import FastSLAM, wrap_angle
@@ -134,6 +134,11 @@ class FastSLAMNode(Node):
         self.create_subscription(Odometry, odom_topic, self.on_odom, odom_qos,
                                  callback_group=self.fast_cbg)
         self.create_subscription(Empty, '/maze_slam/save_request', self.on_save, 10)
+        # Alternativa con nombre: publicar String con basename (ej. "maze_slam")
+        # para guardar en maps/<basename>.{pgm,yaml} y no pisar otros mapas.
+        self.create_subscription(String, '/maze_slam/save_request_named',
+                                 self.on_save_named, 10)
+        self.save_basename = 'casa_slam'
 
         self.pub_map = self.create_publisher(OccupancyGrid, '/map', 1)
         self.pub_belief = self.create_publisher(PoseStamped, '/belief', 10)
@@ -224,6 +229,13 @@ class FastSLAMNode(Node):
         self.map_odom = (tx, ty, dtheta)
 
     def on_save(self, _msg):
+        self.save_map()
+
+    def on_save_named(self, msg):
+        name = msg.data.strip() or 'casa_slam'
+        # sanitizar: solo basename, sin path traversal ni extension
+        name = os.path.basename(name).removesuffix('.pgm').removesuffix('.yaml')
+        self.save_basename = name
         self.save_map()
 
     # -------- publicacion periodica --------
@@ -324,13 +336,13 @@ class FastSLAMNode(Node):
         # PGM se escribe top-down; ROS map_server espera el mismo formato.
         img_to_save = np.flipud(img)
 
-        pgm_path = os.path.join(self.maps_dir, 'casa_slam.pgm')
-        yaml_path = os.path.join(self.maps_dir, 'casa_slam.yaml')
+        pgm_path = os.path.join(self.maps_dir, f'{self.save_basename}.pgm')
+        yaml_path = os.path.join(self.maps_dir, f'{self.save_basename}.yaml')
         with open(pgm_path, 'wb') as f:
             f.write(f'P5\n{self.fs.W} {self.fs.H}\n255\n'.encode())
             f.write(img_to_save.tobytes())
         with open(yaml_path, 'w') as f:
-            f.write('image: casa_slam.pgm\n')
+            f.write(f'image: {self.save_basename}.pgm\n')
             f.write(f'resolution: {self.fs.res}\n')
             f.write(f'origin: [{self.fs.origin}, {self.fs.origin}, 0.0]\n')
             f.write('negate: 0\n')
