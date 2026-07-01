@@ -22,8 +22,8 @@ source scripts/parte_c_env.sh
 PROFILE="${1:-bag}"
 BAG="${2:-rosbags/laberinto_conos}"
 DURATION="${3:-60}"
+RATE="${4:-1.0}"
 PARAMS="$ROOT_DIR/config/parte_c/${PROFILE}.yaml"
-TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
 
 cleanup() {
   [ -n "${DET_PID:-}" ] && kill "$DET_PID" 2>/dev/null || true
@@ -42,14 +42,9 @@ ros2 launch maze_perception cone_detector.launch.py params_file:="$PARAMS" &
 DET_PID=$!
 sleep 3
 
-ros2 bag play "$BAG" &
+ros2 bag play "$BAG" --rate "$RATE" &
 BAG_PID=$!
 
-echo "[smoke_cone_detect] midiendo tasa de /cone_detections por ${DURATION}s ..."
-if [ -n "$TIMEOUT_BIN" ]; then
-  "$TIMEOUT_BIN" "$DURATION" ros2 topic hz /cone_detections || true
-else
-  echo "(sin 'timeout'; inspeccionar manualmente) ros2 topic hz /cone_detections"
-  wait "$BAG_PID"
-fi
-echo "[smoke_cone_detect] listo. Debug visual: rqt_image_view /cone_debug_image"
+echo "[smoke_cone_detect] capturando debug online por ${DURATION}s ..."
+python "$ROOT_DIR/scripts/cone_debug_capture.py" "$DURATION" "$ROOT_DIR/results/parte_c/C2"
+echo "[smoke_cone_detect] listo. Debug visual en vivo: rqt_image_view /cone_debug_image (o RViz)"

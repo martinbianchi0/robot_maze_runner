@@ -176,16 +176,23 @@ class ConeDetectorNode(Node):
         self.det_pub.publish(String(data=out.to_json()))
 
         if self.publish_debug:
-            self._publish_debug(bgr, mask, detections, msg.header)
+            self._publish_debug(bgr, mask, blobs, detections, msg.header)
 
-    def _publish_debug(self, bgr, mask, detections, header):
+    def _publish_debug(self, bgr, mask, blobs, detections, header):
         import cv2
         annotated = bgr.copy()
-        for det in detections:
-            cv2.circle(annotated, (det.u, det.v), 4, (0, 255, 0), -1)
+        # blobs[i] corresponde a detections[i]; el [0] es el mas grande (elegido).
+        for i, (blob, det) in enumerate(zip(blobs, detections)):
+            color = (0, 255, 0) if i == 0 else (0, 170, 170)
+            thick = 2 if i == 0 else 1
+            cv2.rectangle(annotated, (blob.x, blob.y),
+                          (blob.x + blob.w, blob.y + blob.h), color, thick)
+            cv2.circle(annotated, (det.u, det.v), 3, color, -1)
+        if detections:
+            d = detections[0]
             cv2.putText(
-                annotated, f'{math.degrees(det.bearing_rad):.0f}deg',
-                (det.u + 5, det.v), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                annotated, f'{math.degrees(d.bearing_rad):+.0f}deg a={d.area_px} c={d.confidence:.2f}',
+                (4, annotated.shape[0] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
         self.debug_pub.publish(bgr_to_image_msg(annotated, header, 'bgr8'))
         self.mask_pub.publish(bgr_to_image_msg(mask, header, 'mono8'))
 

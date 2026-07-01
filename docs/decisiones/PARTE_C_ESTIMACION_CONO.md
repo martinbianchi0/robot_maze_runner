@@ -79,6 +79,25 @@ metrica de precision (`scripts/hsv_calibrate.py` para caracterizar,
   V>=70. Evidencia en `results/parte_c/C1/hsv/` (histograma S separando cono vs
   espurio, samples). Son parametros del nodo (`hsv.*`): reajustables por perfil.
 
+## Debug online (C2)
+
+El detector publica, con `publish_debug:=true`, `/cone_debug_image` (imagen
+anotada: bbox + centroide + bearing/area/confianza) y `/cone_mask` (mascara
+binaria). Validado EN VIVO por ROS (no offline) reproduciendo el bag:
+
+```bash
+# lanza el detector, reproduce el bag (rate 3x) y captura evidencia por 45 s
+bash scripts/smoke_cone_detect.sh bag rosbags/laberinto_conos 45 3.0
+# inspeccion humana en vivo:
+rqt_image_view /cone_debug_image     # o agregar el topic Image en RViz
+```
+
+Resultado: 4026 frames, 56% con deteccion roja (sobre toda la ventana, incluye
+tramos donde el robot no mira el cono); QoS best_effort compatible con el bag.
+La captura (`scripts/cone_debug_capture.py`) guarda pares anotado+mascara en
+`results/parte_c/C2/`; se ve el cono aislado limpio y el blob creciendo a medida
+que el robot se acerca (consistente con la correlacion area~1/rango).
+
 ## Limitaciones / pendientes
 
 - Queda ~13% de detecciones outliers (rojo saturado espurio: reflejos u otro

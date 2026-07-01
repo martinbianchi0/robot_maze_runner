@@ -5,6 +5,12 @@
 #
 # Overridables: CONDA_BASE (default ~/miniforge3), ROSENV_NAME (default rosenv).
 
+# Los scripts de activacion de conda y el setup.bash de ROS referencian variables
+# no seteadas; con 'set -u' del caller romperian. Guardar y desactivar nounset
+# alrededor del sourcing, y restaurarlo despues.
+case $- in *u*) _RESTORE_U=1 ;; *) _RESTORE_U=0 ;; esac
+set +u
+
 CONDA_BASE="${CONDA_BASE:-$HOME/miniforge3}"
 if [ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
   # shellcheck disable=SC1091
@@ -21,3 +27,6 @@ if [ -f "install/setup.bash" ]; then
   # shellcheck disable=SC1091
   source install/setup.bash
 fi
+
+[ "$_RESTORE_U" = 1 ] && set -u
+unset _RESTORE_U
