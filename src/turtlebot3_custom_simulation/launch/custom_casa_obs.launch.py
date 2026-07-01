@@ -25,7 +25,7 @@ def generate_launch_description():
     world = os.path.join(
         get_package_share_directory('turtlebot3_custom_simulation'),
         'worlds',
-        'casa_obs.world'
+        'casa_o.world'
     )
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')

@@ -51,7 +51,7 @@ class Navigator(Node):
         self.declare_parameter('v_max', 0.18)
         self.declare_parameter('w_max', 1.2)
         self.declare_parameter('goal_tol', 0.12)       # m
-        self.declare_parameter('yaw_tol', 0.10)        # rad
+        self.declare_parameter('yaw_tol', 0.15)        # rad ~ 8.6 grados
         self.declare_parameter('safety_stop', 0.22)    # m, freno de emergencia
         self.declare_parameter('control_rate', 20.0)
         self.declare_parameter('scan_topic', '/scan')
@@ -72,6 +72,7 @@ class Navigator(Node):
         self.pose = None                # (x,y,theta) estimada
         self.goal = None                # (x,y,theta)
         self.path = []                  # lista de (x,y) en mundo
+        self.path_idx = 0               # avanza monotono a lo largo de self.path
         self.state = 'IDLE'
         self.scan = None
 
@@ -207,6 +208,7 @@ class Navigator(Node):
             cells.append(came[cells[-1]])
         cells.reverse()
         self.path = [grid_to_world(gx, gy, origin, res) for (gx, gy) in cells]
+        self.path_idx = 0
         self._publish_path()
         return True
 
@@ -239,29 +241,46 @@ class Navigator(Node):
 
     def _register_obstacle_from_scan(self):
         """Agrega al costmap los impactos del LIDAR que caen en celdas 'libres'
-        del mapa (=> obstaculo no mapeado) y re-infla."""
+        del mapa (=> obstaculo no mapeado) y re-infla. Devuelve # celdas nuevas.
+
+        Filtra impactos cercanos a paredes ya mapeadas (radio 2 celdas) para no
+        marcar como 'nuevo' lo que en realidad es error de localizacion MCL.
+        """
         if self.scan is None or self.pose is None:
-            return
+            return 0
         r = np.asarray(self.scan.ranges, dtype=np.float32)
         ang = self.scan.angle_min + np.arange(len(r)) * self.scan.angle_increment
         ok = np.isfinite(r) & (r > self.scan.range_min) & (r < 2.0)
         r, ang = r[ok], ang[ok]
         px, py, pth = self.pose
-        ex = px + r * np.cos(pth + ang)
-        ey = py + r * np.sin(pth + ang)
+        # Aplicar el offset base_scan -> base_footprint del TB3 burger (-3.2cm x).
+        c, s = math.cos(pth), math.sin(pth)
+        sx = px + c * -0.032
+        sy = py + s * -0.032
+        ex = sx + r * np.cos(pth + ang)
+        ey = sy + r * np.sin(pth + ang)
         res, origin = self.map['res'], self.map['origin']
         H, W = self.map['H'], self.map['W']
+        occ = self.map['occ']
+        near_wall_m = 2 * res   # tolerancia MCL: si esta a <=2 celdas de una pared mapeada, no es nuevo
         added = 0
         for x, y in zip(ex, ey):
             gx = int((x - origin[0]) / res)
             gy = int((y - origin[1]) / res)
-            if 0 <= gx < W and 0 <= gy < H and self.map['occ'][gy, gx] == 0:
-                if (gx, gy) not in self.dyn_obstacles:
-                    self.dyn_obstacles.add((gx, gy))
-                    added += 1
+            if not (0 <= gx < W and 0 <= gy < H):
+                continue
+            if occ[gy, gx] != 0:
+                continue   # celda ya ocupada/desconocida en el mapa
+            if self.cost[gy, gx] < near_wall_m:
+                continue   # cerca de una pared mapeada -> probable error MCL
+            if (gx, gy) in self.dyn_obstacles:
+                continue
+            self.dyn_obstacles.add((gx, gy))
+            added += 1
         if added:
             self._build_costmap()
             self.get_logger().info(f'Obstaculo no mapeado: +{added} celdas, re-planificando')
+        return added
 
     # --------------------------------------------------------------------- #
     #   Control                                                             #
@@ -282,13 +301,17 @@ class Navigator(Node):
                 self.state = 'IDLE'
             return
 
-        # freno de emergencia por obstaculo muy cercano
+        # freno de emergencia SOLO por obstaculo NO mapeado (evita loop
+        # FOLLOWING<->RECOVERY cuando el plan pasa cerca de una pared conocida
+        # y el error de MCL hace que el LIDAR la vea a <safety_stop).
         clr = self._forward_clearance()
         if self.state == 'FOLLOWING' and clr is not None and clr < self.safety_stop:
-            self._stop()
-            self._register_obstacle_from_scan()
-            self.state = 'RECOVERY'
-            return
+            added = self._register_obstacle_from_scan()
+            if added > 0:
+                self._stop()
+                self.state = 'RECOVERY'
+                return
+            # pared ya mapeada + error de localizacion: reducir velocidad, no frenar
 
         if self.state == 'RECOVERY':
             if self.plan():
@@ -335,16 +358,25 @@ class Navigator(Node):
     def _lookahead_point(self, px, py):
         if not self.path:
             return None
-        # descartar los puntos ya pasados (mas cercanos que lookahead), quedarse
-        # con el primero mas alla del radio de lookahead
-        best = None
-        for (x, y) in self.path:
+        # 1) avanzar el indice al punto del path mas cercano al robot, buscando
+        # SOLO hacia adelante (no retroceder). Asi si el robot se desvia lateral,
+        # sigue tirando el lookahead hacia adelante del path, en vez de mandarlo
+        # al inicio (que era el bug del orbit).
+        best_i, best_d = self.path_idx, float('inf')
+        for i in range(self.path_idx, min(len(self.path), self.path_idx + 40)):
+            x, y = self.path[i]
+            d = math.hypot(x - px, y - py)
+            if d < best_d:
+                best_d = d
+                best_i = i
+        self.path_idx = best_i
+
+        # 2) desde el indice actual, avanzar hasta acumular >= lookahead
+        for i in range(self.path_idx, len(self.path)):
+            x, y = self.path[i]
             if math.hypot(x - px, y - py) >= self.lookahead:
-                best = (x, y)
-                break
-        if best is None:
-            best = self.path[-1]  # cerca del final: apuntar al ultimo punto
-        return best
+                return (x, y)
+        return self.path[-1]
 
     def _align(self):
         _, _, pth = self.pose
@@ -355,7 +387,13 @@ class Navigator(Node):
             self.get_logger().info('Objetivo alcanzado (posicion y angulo).')
             return
         tw = Twist()
-        tw.angular.z = max(-self.w_max, min(self.w_max, 1.5 * err))
+        # velocidad proporcional con piso: sin piso, cuando err ~ 0.15 la
+        # velocidad cae bajo el ruido de la MCL y el robot nunca converge.
+        min_w = 0.3
+        w = 1.5 * err
+        if abs(w) < min_w:
+            w = math.copysign(min_w, err)
+        tw.angular.z = max(-self.w_max, min(self.w_max, w))
         self.cmd_pub.publish(tw)
 
     def _stop(self):

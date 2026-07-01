@@ -42,7 +42,7 @@ class Localizer(Node):
         super().__init__('localizer')
         self.declare_parameter('n_particles', 600)
         self.declare_parameter('sigma_hit', 0.35)      # m, ancho del likelihood (gentil)
-        self.declare_parameter('max_beams', 30)
+        self.declare_parameter('max_beams', 60)
         self.declare_parameter('alpha1', 0.05)         # ruido rot por rot
         self.declare_parameter('alpha2', 0.05)         # ruido rot por trans
         self.declare_parameter('alpha3', 0.05)         # ruido trans por trans
@@ -51,8 +51,18 @@ class Localizer(Node):
         self.declare_parameter('update_min_a', 0.05)   # rad para gatillar update
         self.declare_parameter('init_xy_std', 0.30)
         self.declare_parameter('init_yaw_std', 0.30)
+        # Augmented MCL (Probabilistic Robotics 8.3): inyeccion de particulas
+        # aleatorias cuando la likelihood cae respecto de una media larga.
+        self.declare_parameter('alpha_slow', 0.001)
+        self.declare_parameter('alpha_fast', 0.1)
+        self.declare_parameter('resample_neff_ratio', 0.2)  # antes 1/3, ahora 1/5
         self.declare_parameter('scan_topic', '/scan')
         self.declare_parameter('odom_topic', '/calc_odom')
+        # Offset del LIDAR (base_scan) respecto a base_footprint. TB3 burger:
+        # base_scan esta 3.2 cm ATRAS del centro. Ignorar esto shifteaba el scan
+        # ~0.6 celdas y hacia que MCL nunca alineara con el mapa.
+        self.declare_parameter('scan_x_offset', -0.032)
+        self.declare_parameter('scan_y_offset', 0.0)
 
         self.N = int(self.get_parameter('n_particles').value)
         self.sigma = float(self.get_parameter('sigma_hit').value)
@@ -62,6 +72,16 @@ class Localizer(Node):
         self.min_a = float(self.get_parameter('update_min_a').value)
         self.init_xy_std = float(self.get_parameter('init_xy_std').value)
         self.init_yaw_std = float(self.get_parameter('init_yaw_std').value)
+        self.alpha_slow = float(self.get_parameter('alpha_slow').value)
+        self.alpha_fast = float(self.get_parameter('alpha_fast').value)
+        self.neff_ratio = float(self.get_parameter('resample_neff_ratio').value)
+        self.scan_dx = float(self.get_parameter('scan_x_offset').value)
+        self.scan_dy = float(self.get_parameter('scan_y_offset').value)
+        self.w_slow = 0.0
+        self.w_fast = 0.0
+        self.last_mean_w = 1.0   # para debug
+        self.prev_eth = None
+        self.yaw_smooth = 0.35   # limite de salto de yaw por publicacion
 
         self.rng = np.random.default_rng(0)
         self.particles = None            # (N,3)
@@ -168,8 +188,12 @@ class Localizer(Node):
         px = self.particles[:, 0][:, None]
         py = self.particles[:, 1][:, None]
         pth = self.particles[:, 2][:, None]
-        ex = px + r[None, :] * np.cos(pth + ang[None, :])
-        ey = py + r[None, :] * np.sin(pth + ang[None, :])
+        # Origen del scan en el mundo: base_footprint + rotacion del offset del LIDAR.
+        c, s = np.cos(pth), np.sin(pth)
+        sx = px + c * self.scan_dx - s * self.scan_dy
+        sy = py + s * self.scan_dx + c * self.scan_dy
+        ex = sx + r[None, :] * np.cos(pth + ang[None, :])
+        ey = sy + r[None, :] * np.sin(pth + ang[None, :])
         gx = ((ex - ox) / res).astype(np.int32)
         gy = ((ey - oy) / res).astype(np.int32)
         inb = (gx >= 0) & (gx < W) & (gy >= 0) & (gy < H)
@@ -184,6 +208,15 @@ class Localizer(Node):
         q = np.exp(-(d * d) / (2.0 * self.sigma * self.sigma))
         p = 0.8 * q + 0.2
         logw = np.sum(np.log(p), axis=1)
+        # log-mean por particula, normalizado por # rayos -> promedio robusto para
+        # augmented MCL sin que dependa del tamano del scan.
+        n_beams_used = p.shape[1]
+        mean_logw_per_beam = float(np.mean(logw)) / max(1, n_beams_used)
+        w_avg = math.exp(mean_logw_per_beam)
+        self.last_mean_w = w_avg
+        self.w_slow += self.alpha_slow * (w_avg - self.w_slow)
+        self.w_fast += self.alpha_fast * (w_avg - self.w_fast)
+
         logw -= logw.max()
         w = np.exp(logw)
         w += 1e-12
@@ -192,46 +225,70 @@ class Localizer(Node):
 
     def _resample(self):
         neff = 1.0 / np.sum(self.weights ** 2)
-        if neff > self.N / 3.0:
+        if neff > self.N * self.neff_ratio:
             return
-        # resampleo sistematico
-        positions = (np.arange(self.N) + self.rng.random()) / self.N
+        # Fraccion de inyeccion (Augmented MCL). Umbral 5% para no disparar por
+        # ruido chico, tope 5% para no romper la unimodalidad del filtro.
+        w_diff = max(0.0, 1.0 - self.w_fast / max(self.w_slow, 1e-12))
+        if w_diff < 0.05:
+            w_diff = 0.0
+        n_inject = int(self.N * min(w_diff, 0.05))
+
+        n_keep = self.N - n_inject
+        # resampleo sistematico sobre las particulas actuales
+        positions = (np.arange(n_keep) + self.rng.random()) / n_keep
         cumsum = np.cumsum(self.weights)
         cumsum[-1] = 1.0
         new_idx = np.searchsorted(cumsum, positions)
-        self.particles = self.particles[new_idx].copy()
+        kept = self.particles[new_idx].copy()
         # roughening: pequeno jitter para evitar empobrecimiento
-        self.particles[:, 0] += self.rng.normal(0, 0.01, self.N)
-        self.particles[:, 1] += self.rng.normal(0, 0.01, self.N)
-        self.particles[:, 2] += self.rng.normal(0, 0.01, self.N)
+        kept[:, 0] += self.rng.normal(0, 0.01, n_keep)
+        kept[:, 1] += self.rng.normal(0, 0.01, n_keep)
+        kept[:, 2] += self.rng.normal(0, 0.01, n_keep)
+
+        if n_inject > 0:
+            injected = self._sample_free_cells(n_inject)
+            self.particles = np.concatenate([kept, injected], axis=0)
+            self.get_logger().info(
+                f'MCL: inyecto {n_inject} particulas (w_fast={self.w_fast:.3g}, '
+                f'w_slow={self.w_slow:.3g})')
+        else:
+            self.particles = kept
         self.weights = np.full(self.N, 1.0 / self.N)
+
+    def _sample_free_cells(self, n):
+        """Devuelve n poses uniformes sobre celdas libres del mapa (yaw random)."""
+        ys, xs = np.where(self.free)
+        if len(xs) == 0:
+            return np.zeros((n, 3))
+        idx = self.rng.integers(0, len(xs), size=n)
+        res = self.map_meta['res']
+        ox, oy = self.map_meta['origin']
+        px = ox + (xs[idx] + 0.5) * res
+        py = oy + (ys[idx] + 0.5) * res
+        pth = self.rng.uniform(-math.pi, math.pi, size=n)
+        return np.stack([px, py, pth], axis=1)
 
     # --------------------------------------------------------------------- #
     def _publish_estimate(self, stamp):
-        # Estimacion robusta con histeresis temporal: nos quedamos con el modo
-        # (cluster) cercano al estimado anterior. Asi el reporte no salta entre
-        # hipotesis simetricas del mapa; solo "salta" si ese modo se muere de peso
-        # (relocalizacion / secuestro). El promedio global seria inutil si el filtro
-        # es bimodal (daria un punto intermedio sin sentido).
-        if self.prev_est is not None:
-            cx, cy = self.prev_est
-        else:
-            best = int(np.argmax(self.weights))
-            cx, cy = self.particles[best, 0], self.particles[best, 1]
-        near = (np.abs(self.particles[:, 0] - cx) < 0.7) & \
-               (np.abs(self.particles[:, 1] - cy) < 0.7)
-        w = self.weights * near
-        if w.sum() < 1e-6:
-            # el modo anterior se quedo sin peso: reenganchar al modo mas probable
-            best = int(np.argmax(self.weights))
-            bx, by = self.particles[best, 0], self.particles[best, 1]
-            near = (np.abs(self.particles[:, 0] - bx) < 0.7) & \
-                   (np.abs(self.particles[:, 1] - by) < 0.7)
-            w = self.weights * near
-        w = w / w.sum()
-        ex = float(np.sum(self.particles[:, 0] * w))
-        ey = float(np.sum(self.particles[:, 1] * w))
-        eth = angle_mean(self.particles[:, 2], w)
+        # Reporte por MODA: usar solo el top-20% de particulas por peso. La media
+        # ponderada global es inestable cuando la distribucion es multimodal
+        # (yaw en mapas simetricos, o justo despues de inyeccion aleatoria).
+        n_top = max(10, self.N // 5)
+        top_idx = np.argpartition(self.weights, -n_top)[-n_top:]
+        tw = self.weights[top_idx]
+        tw = tw / tw.sum()
+        ex = float(np.sum(self.particles[top_idx, 0] * tw))
+        ey = float(np.sum(self.particles[top_idx, 1] * tw))
+        eth = angle_mean(self.particles[top_idx, 2], tw)
+
+        # Smoothing de yaw: cap el salto entre publicaciones consecutivas para no
+        # confundir al navigator con thrashing de la estimacion angular.
+        if self.prev_eth is not None:
+            d = wrap_angle(eth - self.prev_eth)
+            if abs(d) > self.yaw_smooth:
+                eth = wrap_angle(self.prev_eth + math.copysign(self.yaw_smooth, d))
+        self.prev_eth = eth
         self.prev_est = (ex, ey)
 
         # /amcl_pose
@@ -244,10 +301,10 @@ class Localizer(Node):
         dx = self.particles[:, 0] - ex
         dy = self.particles[:, 1] - ey
         cov = msg.pose.covariance
-        cov[0] = float(np.sum(w * dx * dx))
-        cov[7] = float(np.sum(w * dy * dy))
+        cov[0] = float(np.sum(self.weights * dx * dx))
+        cov[7] = float(np.sum(self.weights * dy * dy))
         dth = np.array([wrap_angle(a - eth) for a in self.particles[:, 2]])
-        cov[35] = float(np.sum(w * dth * dth))
+        cov[35] = float(np.sum(self.weights * dth * dth))
         self.pose_pub.publish(msg)
 
         # /particlecloud (submuestreo para no saturar RViz)

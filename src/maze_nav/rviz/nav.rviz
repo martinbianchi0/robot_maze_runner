@@ -29,13 +29,6 @@ Visualization Manager:
         Value: /map
       Use Timestamp: false
       Value: true
-    - Alpha: 0.5
-      Class: rviz_default_plugins/Map
-      Color Scheme: costmap
-      Draw Behind: false
-      Enabled: false
-      Name: Plan
-      Value: true
     - Class: rviz_default_plugins/LaserScan
       Color: 255; 110; 0
       Color Transformer: FlatColor
