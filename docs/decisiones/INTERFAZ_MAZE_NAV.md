@@ -67,6 +67,31 @@ El mapa del laberinto YA existe: `maps/maze_slam.yaml` (resolucion 0.03,
 origin [-8.25, -8.25]); C3 se reduce a validar la localizacion contra el bag y
 usar ese mapa.
 
+## Validacion del contrato (C4)
+
+Verificado en lazo cerrado con un mini-sim cinematico (`scripts/fake_diff_drive.py`:
+integra `/cmd_vel` -> `/amcl_pose`, sin Gazebo) + map_publisher + navigator, sobre
+el mapa del laberinto. `scripts/smoke_goal_nav.sh` publica un goal y confirma la
+secuencia **PLANNING -> FOLLOWING -> ALIGNING -> REACHED** con la pose final a
+0.12 m del goal. Es tambien el interface smoke test: correr tras cada rebase sobre
+toma-2. No usa `/scan` (el navigator planifica y sigue sobre el mapa estatico; sin
+scan no hace evitacion de obstaculos, pero el contrato de goal se valida igual).
+
+## GAP sim-to-real: orientacion del LIDAR real (IMPORTANTE)
+
+El `localizer` (MCL) y el navigator (`_register_obstacle_from_scan`) fueron
+escritos para el TB3 simulado: asumen el scan ALINEADO con el frente del robot y
+usan `scan_x_offset=-0.032` (base_scan del burger). Pero el TB4 real tiene el
+RPLIDAR montado a **+90 deg** (`rplidar_link`, ver `PARTE_C_ESTIMACION_CONO.md`),
+offset -0.04 m. El localizer calcula el endpoint del rayo como
+`pose + r*dir(yaw + scan_angle)` (sin offset de rotacion), asi que la correccion
+MCL quedaria rotada 90 deg contra el mapa -> NO localizaria sobre el bag real.
+Fix (porteo Parte A/B a real): sumar `scan_yaw_offset` (+pi/2 real, 0 sim) al
+angulo del rayo y usar -0.04 de offset. Cambio chico y retrocompatible en
+`maze_nav` (default 0 = comportamiento actual), a COORDINAR con el equipo.
+Alternativa sin tocar maze_nav: un shim que republica el scan con
+`angle_min += pi/2`. C3 (validar MCL sobre el bag real) depende de esto.
+
 ## Dependencia abierta a confirmar con el equipo
 
 El `localizer` subscribe `/calc_odom` (odometria calculada), no `/odom`. Los bags
