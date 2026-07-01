@@ -1,0 +1,30 @@
+# Perfil ROSBAG (/tb4_0/) para la Parte C (pila de navegacion toma-2).
+# La camara se consume directo desde /tb4_0/... (image_topic es parametro, no
+# hace falta remap). El /scan y la odometria se remapean a raiz en 'ros2 bag
+# play' porque la localizer/navigator esperan /scan y /calc_odom (ver
+# scripts/smoke_slam_bag.sh y docs/decisiones/INTERFAZ_MAZE_NAV.md).
+# QoS de sensores en el bag es BEST_EFFORT.
+
+cone_detector:
+  ros__parameters:
+    image_topic: /tb4_0/oakd/rgb/preview/image_raw
+    camera_info_topic: /tb4_0/oakd/rgb/preview/camera_info
+    detections_topic: cone_detections
+    image_qos: best_effort
+    publish_debug: true
+
+mission_node:
+  ros__parameters:
+    goal_pose_topic: /goal_pose
+    nav_state_topic: /nav_state
+    map_topic: /map
+    pose_topic: /amcl_pose
+    pose_topic_type: pose_with_covariance
+    scan_topic: /scan
+    detections_topic: cone_detections
+    mission_state_topic: /mission_state
+    map_frame: map
+    lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
+    inflation_radius_m: 0.26
+    waypoints_file: config/parte_c/waypoints_laberinto.yaml
+    control_hz: 5.0

@@ -1,0 +1,15 @@
+# Waypoints de busqueda del cono sobre el mapa del laberinto (frame map, metros).
+#
+# PLACEHOLDER: los waypoints definitivos se definen sobre el mapa construido en
+# la etapa C3 (results/parte_c/mapa_laberinto/laberinto.yaml). Se eligen para
+# cubrir las zonas visibles del laberinto; el robot hace un giro-scan en cada
+# uno para maximizar la chance de ver el unico cono (que esta en un lugar
+# desconocido). NO es exploracion de fronteras.
+#
+# Formato por waypoint: x, y (obligatorios), yaw (rad, opcional), scan (bool,
+# opcional; si hacer giro-scan al llegar).
+
+waypoints:
+  - {x: 0.0, y: 0.0, yaw: 0.0, scan: true}
+  - {x: 1.0, y: 0.0, yaw: 0.0, scan: true}
+  - {x: 1.0, y: 1.0, yaw: 1.57, scan: true}

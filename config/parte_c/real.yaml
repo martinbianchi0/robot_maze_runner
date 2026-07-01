@@ -1,0 +1,33 @@
+# Perfil ROBOT REAL (TurtleBot4, namespace /tb4_0/) para la Parte C (pila toma-2).
+# Sensores en BEST_EFFORT. La nav de toma-2 tiene los topicos casi todos
+# hardcodeados (/map, /amcl_pose, /goal_pose, /cmd_vel, /nav_state); el switch a
+# /tb4_0/ se hace por remap/namespace al lanzar la nav, no por parametro (ver
+# INTERFAZ_MAZE_NAV.md). Velocidades conservadoras: se bajan por parametros del
+# navigator (v_max, w_max) en su launch. Tolerancias/timeouts mas amplios.
+
+cone_detector:
+  ros__parameters:
+    image_topic: /tb4_0/oakd/rgb/preview/image_raw
+    camera_info_topic: /tb4_0/oakd/rgb/preview/camera_info
+    detections_topic: cone_detections
+    image_qos: best_effort
+    publish_debug: true
+
+mission_node:
+  ros__parameters:
+    goal_pose_topic: /goal_pose
+    nav_state_topic: /nav_state
+    map_topic: /map
+    pose_topic: /amcl_pose
+    pose_topic_type: pose_with_covariance
+    scan_topic: /tb4_0/scan
+    detections_topic: cone_detections
+    mission_state_topic: /mission_state
+    map_frame: map
+    lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
+    inflation_radius_m: 0.26
+    waypoints_file: config/parte_c/waypoints_laberinto.yaml
+    control_hz: 4.0
+    localize_timeout_s: 45.0
+    goal_timeout_s: 40.0
+    blocked_timeout_s: 8.0

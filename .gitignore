@@ -56,6 +56,9 @@ maps/*.yaml
 *.avi
 *.mkv
 
+# Parte C: evidencia generada (regenerable con scripts/lidar_fusion_validate.py)
+results/parte_c/
+
 # Secrets/local config
 .env
 .env.*

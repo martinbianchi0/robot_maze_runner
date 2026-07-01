@@ -1,0 +1,29 @@
+# Perfil SIMULACION (Gazebo) para la Parte C (pila de navegacion toma-2).
+# Topicos a nivel raiz (sin namespace /tb4_0/). Se usa para iterar rapido.
+# El mapa lo sirve map_publisher: lanzar la nav con
+#   ros2 launch maze_nav nav.launch.py map_yaml:=maps/maze_slam.yaml
+# La localizacion es MCL (localizer -> /amcl_pose); no se usa FastSLAM live.
+
+cone_detector:
+  ros__parameters:
+    image_topic: /oakd/rgb/preview/image_raw
+    camera_info_topic: /oakd/rgb/preview/camera_info
+    detections_topic: cone_detections
+    image_qos: reliable
+    publish_debug: true
+
+mission_node:
+  ros__parameters:
+    goal_pose_topic: /goal_pose
+    nav_state_topic: /nav_state
+    map_topic: /map
+    pose_topic: /amcl_pose
+    pose_topic_type: pose_with_covariance
+    scan_topic: /scan
+    detections_topic: cone_detections
+    mission_state_topic: /mission_state
+    map_frame: map
+    lidar_yaw_offset: 0.0   # sim: LIDAR alineado con la camara/base
+    inflation_radius_m: 0.26
+    waypoints_file: config/parte_c/waypoints_laberinto.yaml
+    control_hz: 5.0
