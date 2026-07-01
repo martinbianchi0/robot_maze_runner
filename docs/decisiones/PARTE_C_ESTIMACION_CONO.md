@@ -63,13 +63,28 @@ conda activate rosenv
 python scripts/lidar_fusion_validate.py rosbags/laberinto_conos 400 2
 ```
 
+## Calibracion HSV del detector (C1)
+
+Barrido de umbrales sobre el bag, usando el ratio de cluster de LIDAR-fusion como
+metrica de precision (`scripts/hsv_calibrate.py` para caracterizar,
+`scripts/hsv_sweep.py` para comparar candidatos en una sola pasada). Hallazgos:
+
+- El cono es rojo-naranja MUY saturado (S~207); los distractores (barreras
+  beige/madera) son naranja poco saturado (S~66). **El piso de saturacion es el
+  discriminador clave**: subirlo de 120 a 160 llevo la precision de 0.74 a 0.87
+  manteniendo todas las detecciones del cono.
+- El hue DEBE quedar angosto (rojo, 0-10 / 170-180). Ensancharlo hacia el naranja
+  mete objetos naranja saturados y arruina la precision (cae a ~0.25-0.30).
+- Umbrales finales en `RedHSVThresholds` (defaults): S>=160, hue rojo angosto,
+  V>=70. Evidencia en `results/parte_c/C1/hsv/` (histograma S separando cono vs
+  espurio, samples). Son parametros del nodo (`hsv.*`): reajustables por perfil.
+
 ## Limitaciones / pendientes
 
-- Umbrales HSV sin calibrar todavia -> ~25% de detecciones son outliers (rojo
-  espurio). Se limpia con la calibracion HSV de C1 + exigir deteccion estable N
-  frames (`detection_stable_frames`) antes de fijar el goal. La geometria
-  LIDAR-fusion en si quedo solida.
+- Queda ~13% de detecciones outliers (rojo saturado espurio: reflejos u otro
+  objeto rojo puntual). Se maneja en la FSM (M3) con deteccion estable N frames
+  (`detection_stable_frames`) + validacion del goal contra el mapa.
 - Clustering en frame odom: sobre el bag completo (~15 min) la odometria deriva;
   no afecta la conclusion (la correlacion es pose-independiente).
-- El cono es naranja-rojo; la banda HSV de rojo lo captura, pero hay que calibrar
-  para discriminar de distractores de otros colores.
+- Robot real: puede hacer falta reajustar S/V por iluminacion distinta del
+  laboratorio; los umbrales son parametros (`hsv.*`), no hardcodeados.

@@ -16,16 +16,24 @@ import numpy as np
 
 @dataclass(frozen=True)
 class RedHSVThresholds:
+    # Calibrado en C1 contra laberinto_conos (barrido de candidatos, ratio de
+    # cluster LIDAR como metrica): el cono es rojo-naranja MUY saturado (S~207)
+    # mientras los distractores (barreras beige/madera) son naranja poco saturado.
+    # Dos hallazgos: (1) el piso de saturacion alto (160) es el discriminador clave
+    # (0.74 -> 0.86 de precision); (2) el hue DEBE quedar angosto (rojo, 0-10 /
+    # 170-180): ensancharlo a naranja mete objetos naranja saturados y arruina la
+    # precision. S185 andaba marginalmente mejor pero recorta la cola de baja S del
+    # cono; se elige S160 por margen ante variacion de iluminacion en el laboratorio.
     # Banda baja (rojo cerca de H=0)
     low1_h: int = 0
-    low1_s: int = 120
+    low1_s: int = 160
     low1_v: int = 70
     high1_h: int = 10
     high1_s: int = 255
     high1_v: int = 255
     # Banda alta (rojo cerca de H=180)
     low2_h: int = 170
-    low2_s: int = 120
+    low2_s: int = 160
     low2_v: int = 70
     high2_h: int = 180
     high2_s: int = 255
