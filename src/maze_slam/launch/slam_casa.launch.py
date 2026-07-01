@@ -30,11 +30,12 @@ def generate_launch_description():
                 'map_size': 250,        # 250 * 0.05 = 12.5 m (alcanza la casa)
                 'sigma_hit': 0.08,
                 'alpha1': 0.04, 'alpha2': 0.02, 'alpha3': 0.05, 'alpha4': 0.02,
-                # Scan-match APAGADO en la casa: el /calc_odom simulado es preciso, y
-                # en la sala cuadrada (simetrica) el scan-match derivaba hacia una
-                # alineacion rotada 90deg (el mapa salia girado). En el laberinto TB4 si
-                # va activado porque alli la odometria real deriva y hay que corregirla.
-                'use_scan_match': False,
+                # Scan-match ON (igual que el laberinto, que anda impecable). El
+                # /calc_odom de la casa integra la velocidad COMANDADA (no la real), asi
+                # que deriva al girar -> con scan-match OFF el mapa sale blob. El tope
+                # sm_max_ang limita la deriva rotacional en la sala simetrica. Si aun
+                # asi girara, probar odom_topic:=/odom (ground truth) para mapa perfecto.
+                'use_scan_match': True,
                 'publish_tf': False,    # la catedra ya da map->odom en la casa
                 'scan_topic': '/scan',
                 'odom_topic': '/calc_odom',
