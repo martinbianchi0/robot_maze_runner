@@ -8,6 +8,9 @@ for pat in \
     rviz2 \
     teleop_keyboard \
     fastslam_node \
+    map_publisher \
+    localizer \
+    navigator \
     turtlebot3_custom_simulation \
     robot_state_publisher \
     parameter_bridge \
