@@ -21,14 +21,14 @@ import os
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Pose, PoseArray, PoseStamped, Quaternion, TransformStamped
+from geometry_msgs.msg import Pose, PoseArray, PoseStamped, PoseWithCovarianceStamped, Quaternion, TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.time import Time
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, QoSReliabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Empty, String
 from tf2_ros import TransformBroadcaster
@@ -140,7 +140,11 @@ class FastSLAMNode(Node):
                                  self.on_save_named, 10)
         self.save_basename = 'casa_slam'
 
-        self.pub_map = self.create_publisher(OccupancyGrid, '/map', 1)
+        map_qos = QoSProfile(depth=1)
+        map_qos.reliability = ReliabilityPolicy.RELIABLE
+        map_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.pub_map = self.create_publisher(OccupancyGrid, '/map', map_qos)
+        self.pub_amcl = self.create_publisher(PoseWithCovarianceStamped, '/amcl_pose', 10)
         self.pub_belief = self.create_publisher(PoseStamped, '/belief', 10)
         self.pub_parts = self.create_publisher(PoseArray, '/maze_slam/particles', 10)
         self.tf_br = TransformBroadcaster(self)
@@ -270,6 +274,18 @@ class FastSLAMNode(Node):
         ps.pose.position.y = float(best.y)
         ps.pose.orientation = yaw_to_quat(best.theta)
         self.pub_belief.publish(ps)
+
+        pc = PoseWithCovarianceStamped()
+        pc.header.frame_id = 'map'
+        pc.header.stamp = ps.header.stamp
+        pc.pose.pose.position.x = float(best.x)
+        pc.pose.pose.position.y = float(best.y)
+        pc.pose.pose.orientation = yaw_to_quat(best.theta)
+        cov = [0.0] * 36
+        cov[0] = cov[7] = 0.05      # var x, y
+        cov[35] = 0.05              # var yaw
+        pc.pose.covariance = cov
+        self.pub_amcl.publish(pc)
 
         # particulas
         pa = PoseArray()
