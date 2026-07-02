@@ -1,6 +1,6 @@
 import numpy as np
 
-from maze_mission.frontier import find_frontier_cells, cluster_frontiers
+from maze_mission.frontier import find_frontier_cells, cluster_frontiers, path_cost_field
 
 
 def test_borde_libre_desconocido_es_frontera():
@@ -51,3 +51,23 @@ def test_centroide_dentro_del_frente():
     clusters = cluster_frontiers(mask, min_cells=1)
     assert len(clusters) == 1
     assert clusters[0].centroid_gx == 2 and clusters[0].centroid_gy == 2
+
+
+def test_costo_respeta_paredes():
+    # laberinto en L: pared en el medio obliga a rodear
+    grid = np.zeros((5, 5), dtype=np.int16)
+    grid[0:4, 2] = 100           # pared vertical col 2, filas 0..3 (deja fila 4 abierta)
+    dist = path_cost_field(grid, (0, 0), lethal=50)
+    # celda al otro lado de la pared: alcanzable pero con costo > distancia recta
+    assert dist[0, 4] > 4        # tuvo que bajar y rodear por la fila 4
+    assert dist[0, 0] == 0
+
+
+def test_frontera_amurallada_inalcanzable():
+    grid = np.zeros((5, 5), dtype=np.int16)
+    grid[1, 1:4] = 100
+    grid[3, 1:4] = 100
+    grid[1:4, 1] = 100
+    grid[1:4, 3] = 100           # celda (2,2) encerrada por paredes
+    dist = path_cost_field(grid, (0, 0), lethal=50)
+    assert dist[2, 2] == -1      # inalcanzable

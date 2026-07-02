@@ -23,6 +23,7 @@ from maze_mission.occupancy import (
 )
 
 _NEIGH8 = np.ones((3, 3), dtype=bool)
+_DIRS8 = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
 
 
 def find_frontier_cells(grid, lethal=50):
@@ -56,3 +57,26 @@ def cluster_frontiers(frontier_mask, min_cells):
             centroid_gy=int(round(float(ys.mean()))),
         ))
     return clusters
+
+
+def path_cost_field(inflated_grid, start_cell, lethal=50):
+    grid = np.asarray(inflated_grid)
+    h, w = grid.shape
+    dist = np.full((h, w), -1, dtype=np.int32)
+    sx, sy = start_cell
+    if not (0 <= sx < w and 0 <= sy < h):
+        return dist
+    if not (0 <= grid[sy, sx] < lethal):
+        return dist
+    dist[sy, sx] = 0
+    queue = deque([(sx, sy)])
+    while queue:
+        x, y = queue.popleft()
+        d = dist[y, x]
+        for dx, dy in _DIRS8:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and dist[ny, nx] < 0:
+                if 0 <= grid[ny, nx] < lethal:
+                    dist[ny, nx] = d + 1
+                    queue.append((nx, ny))
+    return dist
