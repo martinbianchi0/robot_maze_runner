@@ -296,6 +296,11 @@ class MissionNode(Node):
                 self._to(MissionState.CONE_DETECTED)
             return
         self.stable_count = 0
+        # Gracia inicial: dar tiempo a que lleguen detecciones antes de salir a
+        # recorrer waypoints (evita un detour espurio si el primer tick corre
+        # antes de la primera deteccion; las detecciones no son latched).
+        if not self.wp_sent and self._elapsed() < 1.5:
+            return
         # recorrido de waypoints (TODO real: giro-scan en cada uno)
         wp = self.route.current()
         if wp is None:

@@ -18,6 +18,7 @@ source scripts/parte_c_env.sh
 
 SCEN="${1:-reachable}"
 DURATION="${2:-50}"
+MODE="${3:-monitor}"   # monitor (assert PASS/FAIL) | view (graba PNG top-down)
 MAP="maps/maze_slam.yaml"
 START_X=2.45
 START_Y=-2.00
@@ -52,4 +53,8 @@ sleep 2
 ros2 launch maze_mission mission.launch.py params_file:="$PARAMS" &
 sleep 1
 
-python scripts/mission_monitor.py "$EXPECT" "$DURATION" "$MAP"
+if [ "$MODE" = "view" ]; then
+  python scripts/mission_view.py "$TX" "$TY" "$DURATION" "$SCEN" "$MAP"
+else
+  python scripts/mission_monitor.py "$EXPECT" "$DURATION" "$MAP"
+fi
