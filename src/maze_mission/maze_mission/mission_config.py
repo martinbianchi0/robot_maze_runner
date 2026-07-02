@@ -28,6 +28,7 @@ class MissionConfig:
     scan_topic: str = '/scan'
     detections_topic: str = 'cone_detections'
     mission_state_topic: str = '/mission_state'
+    particlecloud_topic: str = '/particlecloud'
     map_frame: str = 'map'
     # Inflado del mapa para validar goals (mismo criterio que el navigator:
     # robot_radius 0.14 + inflation 0.12 = 0.26 m).
@@ -39,8 +40,20 @@ class MissionConfig:
     lidar_offset_x: float = -0.04
     lidar_sector_halfwidth: int = 3
     cone_range_mode: str = 'nearest'
+    # Convergencia de la MCL (estado LOCALIZE): spread maximo de /particlecloud
+    # para considerar la localizacion confiable. Si la nube nunca llega (harness
+    # sin MCL, p.ej. fake_diff_drive), tras localize_cloud_grace_s se sigue con
+    # pose disponible como antes.
+    localize_xy_std_max: float = 0.25
+    localize_yaw_std_max: float = 0.4
+    localize_cloud_grace_s: float = 2.0
     # Busqueda / percepcion.
     waypoints_file: str = ''
+    # Giro-scan en waypoints con scan:=true: al llegar, la mision emite goals
+    # rotados en el mismo (x,y) en scan_turn_steps pasos de 2*pi/steps. El robot
+    # rota continuo entre pasos, asi que la camara barre los 360 deg completos.
+    # 0 = sin giro-scan.
+    scan_turn_steps: int = 3
     detection_confidence_min: float = 0.4
     detection_stable_frames: int = 3
     verify_area_px_min: int = 1500          # area para confirmar cono cercano

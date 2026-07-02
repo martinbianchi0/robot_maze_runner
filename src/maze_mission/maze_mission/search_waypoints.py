@@ -7,6 +7,7 @@ waypoints se cargan desde un YAML del perfil (config/parte_c/waypoints_*.yaml).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -45,6 +46,24 @@ class WaypointRoute:
 
     def exhausted(self) -> bool:
         return self._index >= len(self._waypoints)
+
+
+def scan_turn_yaws(base_yaw: float, steps: int) -> List[float]:
+    """Yaws sucesivos del giro-scan de 360 deg en un waypoint.
+
+    Devuelve `steps` orientaciones equiespaciadas (2*pi/steps) a partir de
+    base_yaw, terminando de vuelta en base_yaw. Como el robot rota continuo
+    entre goals (ALIGNING), la camara barre la vuelta completa sin importar
+    su HFOV. steps <= 0 -> sin giro-scan.
+    """
+    if steps <= 0:
+        return []
+    delta = 2.0 * math.pi / steps
+    return [wrap_angle(base_yaw + (k + 1) * delta) for k in range(steps)]
+
+
+def wrap_angle(a: float) -> float:
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
 def load_waypoints(path: str) -> List[Waypoint]:
