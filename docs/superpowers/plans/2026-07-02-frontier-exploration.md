@@ -481,10 +481,16 @@ def select_frontier_goal(grid, spec, robot_xy, *, lethal=50,
     if not clusters:
         return None
 
+    # Inflar solo paredes reales: el BFS ya no atraviesa desconocido (es -1, no
+    # libre), asi que inflar el desconocido solo volveria inalcanzables las celdas
+    # frontera (que lindan con desconocido). Por eso unknown_as_obstacle=False.
     inflated = inflate_occupancy(grid, inflation_cells,
-                                 unknown_as_obstacle=True, lethal_threshold=lethal)
+                                 unknown_as_obstacle=False, lethal_threshold=lethal)
     start = world_to_grid(robot_xy[0], robot_xy[1], spec)
-    start = nearest_free_cell(inflated, start, lethal_threshold=lethal) or start
+    start_free = nearest_free_cell(inflated, start, lethal_threshold=lethal)
+    if start_free is None:
+        return None
+    start = start_free
     dist = path_cost_field(inflated, start, lethal)
 
     best = None
