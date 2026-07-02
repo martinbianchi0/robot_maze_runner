@@ -49,3 +49,19 @@ def test_inflate_trata_desconocido_como_obstaculo():
     inflated = inflate_occupancy(grid, radius_cells=1)
     assert inflated[0, 1] == 100 or inflated[1, 0] == 100
     assert inflated[0, 0] == -1    # el desconocido queda -1 (sigue no navegable)
+
+
+def test_inflate_unknown_as_obstacle_false_no_infla_desconocido():
+    grid = np.zeros((5, 5), dtype=np.int16)
+    grid[0, 0] = -1
+    inflated = inflate_occupancy(grid, radius_cells=1, unknown_as_obstacle=False)
+    # sin tratar desconocido como obstaculo: las celdas libres vecinas siguen libres
+    assert inflated[0, 1] == 0 and inflated[1, 0] == 0
+    assert inflated[0, 0] == -1
+
+
+def test_inflate_unknown_as_obstacle_false_igual_infla_paredes():
+    grid = np.zeros((5, 5), dtype=np.int16)
+    grid[2, 2] = 100
+    inflated = inflate_occupancy(grid, radius_cells=1, unknown_as_obstacle=False)
+    assert inflated[2, 1] == 100 and inflated[1, 2] == 100

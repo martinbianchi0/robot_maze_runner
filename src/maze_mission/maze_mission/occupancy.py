@@ -78,16 +78,21 @@ def nearest_free_cell(grid, start, max_radius=12, lethal_threshold=50, allow_unk
     return None
 
 
-def inflate_occupancy(grid, radius_cells, lethal_threshold=50):
+def inflate_occupancy(grid, radius_cells, *, unknown_as_obstacle=True, lethal_threshold=50):
     """Marca como lethal (100) toda celda libre a <= radius_cells de un obstaculo.
 
-    Obstaculo = pared mapeada (>= lethal_threshold) o desconocido (< 0), igual que
-    el navigator de toma-2. Los desconocidos quedan en -1 (siguen no-navegables via
-    is_cell_free con allow_unknown=False). Devuelve una grilla nueva.
+    Obstaculo = pared mapeada (>= lethal_threshold). Si unknown_as_obstacle (default),
+    tambien el desconocido (< 0) cuenta como obstaculo, igual que el navigator de toma-2
+    (para validar goals del cono). unknown_as_obstacle=False lo excluye, para usar el
+    mapa como campo de costo de exploracion sin que lo desconocido bloquee. Los
+    desconocidos quedan en -1 (no navegables via is_cell_free con allow_unknown=False).
+    Devuelve una grilla nueva.
     """
     grid = np.asarray(grid)
     inflated = grid.copy()
-    obstacles = (grid >= lethal_threshold) | (grid < 0)
+    obstacles = grid >= lethal_threshold
+    if unknown_as_obstacle:
+        obstacles = obstacles | (grid < 0)
     if radius_cells <= 0 or not obstacles.any():
         return inflated
     dist_cells = distance_transform_edt(~obstacles)
