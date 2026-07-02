@@ -64,3 +64,42 @@ Grabacion opcional de RViz:
 ```bash
 ./scripts/lab_record_rviz.sh results/labo_demo/<timestamp>
 ```
+
+## Como generar un video para el informe
+
+### A. Grabacion en vivo
+
+En una terminal dejar corriendo la captura de datos:
+
+```bash
+./scripts/lab_record_all.sh tb4_0
+```
+
+En otra terminal, con RViz abierto, grabar pantalla si el entorno tiene
+`ffmpeg` y `DISPLAY`:
+
+```bash
+./scripts/lab_record_rviz.sh results/labo_demo/<timestamp>
+```
+
+El MP4 queda dentro del mismo directorio de resultados, por ejemplo
+`results/labo_demo/<timestamp>/rviz_screen_<date>.mp4`.
+
+### B. Replay post-labo
+
+El replay usa el rosbag guardado en `<run_dir>/rosbag`, publica `/clock` y abre
+RViz con `use_sim_time:=true`:
+
+```bash
+./scripts/lab_replay_rviz.sh results/labo_demo/<timestamp> tb4_0
+./scripts/lab_record_rviz.sh results/labo_demo/<timestamp>
+```
+
+Para reproducir mas lento:
+
+```bash
+RATE=0.5 ./scripts/lab_replay_rviz.sh results/labo_demo/<timestamp> tb4_0
+```
+
+La vista dedicada esta en `rviz/lab_replay.rviz`. Por default usa `/tb4_0/scan`;
+para `tb4_1` puede requerir editar ese display o ajustar la configuracion RViz.

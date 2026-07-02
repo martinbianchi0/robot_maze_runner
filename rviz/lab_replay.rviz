@@ -1,0 +1,124 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Value: Lines
+      Name: Grid
+      Plane Cell Count: 20
+      Reference Frame: map
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Axes: true
+      Show Names: false
+      Value: true
+    - Alpha: 0.75
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: true
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+        Value: /map
+      Use Timestamp: false
+      Value: true
+    - Class: rviz_default_plugins/LaserScan
+      Color: 255; 110; 0
+      Color Transformer: FlatColor
+      Decay Time: 0.2
+      Enabled: true
+      Name: Scan tb4_0
+      Size (m): 0.04
+      Style: Points
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+        Value: /tb4_0/scan
+      Use Fixed Frame: true
+      Value: true
+    - Alpha: 0.45
+      Arrow Length: 0.12
+      Class: rviz_default_plugins/PoseArray
+      Color: 0; 80; 255
+      Enabled: true
+      Name: ParticleCloud
+      Shape: Arrow (Flat)
+      Topic:
+        Value: /particlecloud
+      Value: true
+    - Class: rviz_default_plugins/PoseWithCovariance
+      Color: 0; 220; 0
+      Enabled: true
+      Name: AMCL Pose
+      Topic:
+        Value: /amcl_pose
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 255; 0; 200
+      Enabled: true
+      Line Style: Lines
+      Name: Plan
+      Topic:
+        Value: /plan
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Lab Viz Markers
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+        Value: /lab_viz/markers
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: false
+      Name: Cone Debug Image
+      Topic:
+        Value: /cone_debug_image
+      Value: false
+    - Class: rviz_default_plugins/Image
+      Enabled: false
+      Name: Cone Mask
+      Topic:
+        Value: /cone_mask
+      Value: false
+  Global Options:
+    Background Color: 38; 38; 38
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Measure
+  Value: true
+  Views:
+    Current:
+      Angle: 0
+      Class: rviz_default_plugins/TopDownOrtho
+      Invert Z Axis: false
+      Name: TopDownOrtho
+      Near Clip Distance: 0.01
+      Scale: 18
+      Target Frame: map
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: -0.5
+      Y: -3.5
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Width: 1400
+  X: 80
+  Y: 60
