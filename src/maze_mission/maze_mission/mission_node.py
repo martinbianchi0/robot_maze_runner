@@ -39,7 +39,7 @@ from maze_mission.cone_goal_estimator import cone_world_from_lidar
 from maze_mission.goal_validator import GoalStatus, ValidatorConfig, validate_goal
 from maze_mission.mission_config import MissionConfig
 from maze_mission.occupancy import GridSpec, in_bounds, inflate_occupancy, world_to_grid
-from maze_mission.search_waypoints import WaypointRoute, load_waypoints
+from maze_mission.frontier import select_frontier_goal
 
 
 class MissionState(Enum):
@@ -98,7 +98,6 @@ class MissionNode(Node):
 
         self.state = MissionState.INIT
         self.state_since = self.get_clock().now()
-        self.route = self._load_route()
         self.chosen = None          # ConeDetection en curso
         self.stable_count = 0
         self.cone_goal = None       # (x, y) estimado del cono
@@ -124,7 +123,7 @@ class MissionNode(Node):
         self.timer = self.create_timer(1.0 / max(1.0, self.cfg.control_hz), self._on_timer)
         self.get_logger().info(
             f'mission_node iniciado. pose={self.cfg.pose_topic} map={self.cfg.map_topic} '
-            f'scan={self.cfg.scan_topic} waypoints={len(self.route)} '
+            f'scan={self.cfg.scan_topic} frontier_alpha={self.cfg.frontier_alpha} '
             f'lidar_offset={math.degrees(self.cfg.lidar_yaw_offset):.0f}deg')
 
     # -- parametros ----------------------------------------------------------
@@ -140,14 +139,6 @@ class MissionNode(Node):
             snap_radius_cells=self.declare_parameter('validator.snap_radius_cells', 6).value,
             max_snap_dist_m=self.declare_parameter('validator.max_snap_dist_m', 0.25).value,
         )
-
-    def _load_route(self) -> WaypointRoute:
-        if self.cfg.waypoints_file:
-            try:
-                return WaypointRoute(load_waypoints(self.cfg.waypoints_file))
-            except Exception as exc:  # noqa: BLE001
-                self.get_logger().warn(f'no pude cargar waypoints: {exc}')
-        return WaypointRoute([])
 
     # -- callbacks -----------------------------------------------------------
     def _subscribe_pose(self, qos):
@@ -301,17 +292,26 @@ class MissionNode(Node):
         # antes de la primera deteccion; las detecciones no son latched).
         if not self.wp_sent and self._elapsed() < 1.5:
             return
-        # recorrido de waypoints (TODO real: giro-scan en cada uno)
-        wp = self.route.current()
-        if wp is None:
-            self._note('waypoints agotados sin encontrar el cono')
-            self._to(MissionState.FAILURE)
+        # Exploracion por fronteras: en vez de waypoints fijos, ir al mejor borde
+        # libre<->desconocido del mapa que construye el SLAM en vivo.
+        if self.raw_grid is None or self.spec is None or self.pose is None:
             return
         if not self.wp_sent:
-            if self._emit_goal(wp.x, wp.y, wp.yaw):
+            inflation_cells = int(round(
+                self.cfg.inflation_radius_m / max(self.spec.resolution, 1e-6)))
+            goal = select_frontier_goal(
+                self.raw_grid, self.spec, (self.pose[0], self.pose[1]),
+                inflation_cells=inflation_cells,
+                min_frontier_cells=self.cfg.frontier_min_cells,
+                alpha=self.cfg.frontier_alpha)
+            if goal is None:
+                self._note('laberinto explorado sin encontrar el cono')
+                self._to(MissionState.FAILURE)
+                return
+            if self._emit_goal(goal.x, goal.y, goal.yaw):
                 self.wp_sent = True
         elif self.nav_state == NAV_REACHED:
-            self.route.advance()
+            # llegamos a la frontera; el mapa crecio -> recalcular en el proximo tick
             self.wp_sent = False
 
     def _state_cone_detected(self):
