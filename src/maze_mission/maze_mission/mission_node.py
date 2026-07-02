@@ -103,6 +103,7 @@ class MissionNode(Node):
         self.cone_goal = None       # (x, y) estimado del cono
         self.replan_count = 0
         self.wp_sent = False
+        self._frontier_excluded = set()   # celdas goal rechazadas en el episodio actual
         self._last_note = ''
 
         latched = QoSProfile(depth=1)
@@ -287,13 +288,14 @@ class MissionNode(Node):
                 self._to(MissionState.CONE_DETECTED)
             return
         self.stable_count = 0
-        # Gracia inicial: dar tiempo a que lleguen detecciones antes de salir a
-        # recorrer waypoints (evita un detour espurio si el primer tick corre
+        # Gracia inicial: dar tiempo a que lleguen detecciones antes de
+        # iniciar la exploracion por fronteras (evita un detour espurio si el primer tick corre
         # antes de la primera deteccion; las detecciones no son latched).
         if not self.wp_sent and self._elapsed() < 1.5:
             return
-        # Exploracion por fronteras: en vez de waypoints fijos, ir al mejor borde
-        # libre<->desconocido del mapa que construye el SLAM en vivo.
+        # Exploracion por fronteras: ir al mejor borde libre<->desconocido del mapa que
+        # construye el SLAM en vivo. Si un goal se rechaza al validar (no navegable), se
+        # excluye y se prueba el siguiente candidato; la exclusion se resetea al progresar.
         if self.raw_grid is None or self.spec is None or self.pose is None:
             return
         if not self.wp_sent:
@@ -303,16 +305,23 @@ class MissionNode(Node):
                 self.raw_grid, self.spec, (self.pose[0], self.pose[1]),
                 inflation_cells=inflation_cells,
                 min_frontier_cells=self.cfg.frontier_min_cells,
-                alpha=self.cfg.frontier_alpha)
+                alpha=self.cfg.frontier_alpha,
+                exclude=self._frontier_excluded)
             if goal is None:
                 self._note('laberinto explorado sin encontrar el cono')
                 self._to(MissionState.FAILURE)
                 return
             if self._emit_goal(goal.x, goal.y, goal.yaw):
                 self.wp_sent = True
+                self._frontier_excluded = set()
+            else:
+                # goal rechazado: excluir su celda y probar el siguiente candidato
+                gx, gy = world_to_grid(goal.x, goal.y, self.spec)
+                self._frontier_excluded.add((gx, gy))
         elif self.nav_state == NAV_REACHED:
-            # llegamos a la frontera; el mapa crecio -> recalcular en el proximo tick
+            # llegamos a la frontera; el mapa crecio -> recalcular sin exclusiones
             self.wp_sent = False
+            self._frontier_excluded = set()
 
     def _state_cone_detected(self):
         det = self._current_cone()
