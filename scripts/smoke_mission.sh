@@ -44,17 +44,17 @@ sleep 1
 echo "[smoke_mission] escenario=$SCEN cono_target=($TX,$TY) expect=$EXPECT"
 ros2 run maze_nav map_publisher --ros-args -p map_yaml:="$ROOT_DIR/$MAP" &
 ros2 run maze_nav navigator --ros-args -p scan_topic:=/nav_scan_unused &
-python scripts/fake_diff_drive.py --ros-args -p init_x:="$START_X" -p init_y:="$START_Y" &
+python3 scripts/fake_diff_drive.py --ros-args -p init_x:="$START_X" -p init_y:="$START_Y" &
 sleep 4
 # El mock arranca ANTES que la mision: asi el cono ya se ve desde el start (robot
 # quieto -> estimacion limpia) y la mision no maneja waypoints placeholder primero.
-python scripts/mock_cone_publisher.py --ros-args -p target_x:="$TX" -p target_y:="$TY" &
+python3 scripts/mock_cone_publisher.py --ros-args -p target_x:="$TX" -p target_y:="$TY" &
 sleep 2
 ros2 launch maze_mission mission.launch.py params_file:="$PARAMS" &
 sleep 1
 
 if [ "$MODE" = "view" ]; then
-  python scripts/mission_view.py "$TX" "$TY" "$DURATION" "$SCEN" "$MAP"
+  python3 scripts/mission_view.py "$TX" "$TY" "$DURATION" "$SCEN" "$MAP"
 else
-  python scripts/mission_monitor.py "$EXPECT" "$DURATION" "$MAP"
+  python3 scripts/mission_monitor.py "$EXPECT" "$DURATION" "$MAP"
 fi

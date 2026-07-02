@@ -22,7 +22,7 @@ Se lanza con: `ros2 launch maze_nav nav.launch.py map_yaml:=maps/maze_slam.yaml`
 |---|---|---|
 | `map_publisher` | param `map_yaml` (.pgm+.yaml) | `/map` (OccupancyGrid, latched) |
 | `localizer` (MCL) | `/map`, `odom_topic` (`/calc_odom`), `scan_topic` (`/scan`), `/initialpose` | **`/amcl_pose`** (PoseWithCovarianceStamped), `/particlecloud` (PoseArray), TF map->odom |
-| `navigator` | `/map`, `/amcl_pose`, `/goal_pose`, `scan_topic` | `/cmd_vel` (Twist), `/plan` (Path), `/nav_state` (String) |
+| `navigator` | `/map`, `/amcl_pose`, `/goal_pose`, `scan_topic` | `/cmd_vel` (Twist), `/plan` (Path), `/nav_state` (String), `/nav_debug` (String JSON) |
 
 ## Lo que la mision PRODUCE hacia maze_nav
 
@@ -39,6 +39,7 @@ Se lanza con: `ros2 launch maze_nav nav.launch.py map_yaml:=maps/maze_slam.yaml`
 | `/nav_state` | `std_msgs/String` | Estado del navigator: `IDLE`, `PLANNING`, `FOLLOWING`, `ALIGNING`, `REACHED`, `RECOVERY`. |
 | `/plan` | `nav_msgs/Path` | Camino planificado (opcional, evidencia). |
 | `/particlecloud` | `geometry_msgs/PoseArray` | Nube MCL (evidencia de localizacion en RViz). |
+| `/nav_debug` | `std_msgs/String` JSON | Telemetria de evidencia: razon del tick, clearance frontal, intentos de recovery, obstaculos dinamicos, goal, path, cmd_vel y pose. |
 
 Semantica de `/nav_state` para la FSM de mision:
 - **Exito de navegacion = `REACHED`.**
@@ -48,7 +49,9 @@ Semantica de `/nav_state` para la FSM de mision:
 
 ## Diferencias importantes vs. la otra rama (parte-b-nav)
 
-- **NO existe `/nav_debug`** (no hay telemetria JSON). La mision usa `/nav_state` + `/amcl_pose` (+ `/plan`, `/particlecloud`).
+- **`/nav_debug` existe como telemetria opcional** desde `labo-cook-evidence-nav`.
+  La mision no depende de ese topico para decidir; lo usa el kit de evidencia y
+  el diagnostico de obstaculos no mapeados.
 - **NO existe `/global_costmap`**: el navigator infla internamente pero no lo publica. La mision replica el inflado sobre `/map` con el mismo criterio: obstaculo = pared (occ>=lethal) o desconocido (occ<0), bloqueado a < `robot_radius+inflation` (0.14+0.12 = **0.26 m**). Parametro de mision: `inflation_radius_m` (default 0.26).
 - **Topicos casi todos hardcodeados** en la nav (`/map`, `/amcl_pose`, `/goal_pose`, `/cmd_vel`, `/plan`, `/nav_state`); solo `scan_topic`/`odom_topic` son parametros. Para el robot real (namespace `/tb4_0/`) el switch se hace por **remap o namespace al lanzar la nav**, no por parametro. (Deuda respecto de la regla "no hardcodear topics", del lado de maze_nav; se coordina con el equipo si molesta.)
 
