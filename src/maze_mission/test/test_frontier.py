@@ -107,3 +107,13 @@ def test_goal_en_mundo_dentro_de_bounds():
                                inflation_cells=0, min_frontier_cells=1, alpha=0.1)
     assert out is not None
     assert 0.0 <= out.x <= 5.0 and 0.0 <= out.y <= 5.0
+
+
+def test_inflation_no_bloquea_todas_las_fronteras():
+    # con inflacion > 0, las celdas frontera (que lindan con desconocido) no deben
+    # quedar todas infladas como obstaculo: debe seguir habiendo un goal alcanzable.
+    grid = np.zeros((7, 7), dtype=np.int16)
+    grid[:, 6] = -1
+    out = select_frontier_goal(grid, _spec(), (0.0, 3.0),
+                               inflation_cells=1, min_frontier_cells=1, alpha=0.1)
+    assert out is not None
