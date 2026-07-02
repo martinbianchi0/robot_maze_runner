@@ -27,7 +27,9 @@ def generate_launch_description():
     ns = LaunchConfiguration('ns')
     v_max = LaunchConfiguration('v_max', default='0.12')
     w_max = LaunchConfiguration('w_max', default='0.8')
-    common = [{'use_sim_time': False}]
+    # false por default (robot real); true si venis de un rosbag (publica /clock).
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    common = [{'use_sim_time': use_sim_time}]
 
     scan_topic = PythonExpression(["'/' + '", ns, "' + '/scan'"])
     odom_topic = PythonExpression(["'/' + '", ns, "' + '/odom'"])
@@ -42,6 +44,8 @@ def generate_launch_description():
                               description='namespace del TB4 (tb4_0 / tb4_1)'),
         DeclareLaunchArgument('v_max', default_value='0.12'),
         DeclareLaunchArgument('w_max', default_value='0.8'),
+        DeclareLaunchArgument('use_sim_time', default_value='false',
+                              description='true si venis de un rosbag'),
 
         Node(
             package='maze_nav', executable='map_publisher', name='map_publisher',

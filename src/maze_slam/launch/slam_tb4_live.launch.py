@@ -23,6 +23,8 @@ from launch_ros.actions import Node
 def generate_launch_description():
     ns = LaunchConfiguration('ns')
     n_particles = LaunchConfiguration('n_particles', default='80')
+    # false en el robot real (no publica /clock); true si venis del rosbag.
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
 
     scan_topic = PythonExpression(["'/' + '", ns, "' + '/scan'"])
     odom_topic = PythonExpression(["'/' + '", ns, "' + '/odom'"])
@@ -40,7 +42,7 @@ def generate_launch_description():
             package='maze_slam', executable='fastslam_node', name='maze_slam',
             output='screen',
             parameters=[{
-                'use_sim_time': False,
+                'use_sim_time': use_sim_time,
                 'n_particles': n_particles,
                 'resolution': 0.03,
                 'map_size': 500,

@@ -8,8 +8,15 @@
 #   ./shs/navegar_tb4.sh --ns tb4_1                       # el TB4 del lab
 #   ./shs/navegar_tb4.sh --ns tb4_1 --map /ruta.yaml
 #   ./shs/navegar_tb4.sh --ns tb4_1 --v-max 0.10          # mas lento
+#   ./shs/navegar_tb4.sh --bag                            # probar con rosbag
 #
-# Antes de correr:
+# Probar sin robot (validacion previa al turno):
+#   T1: ./shs/bag.sh                       # rosbag del laberinto (o bag_conos.sh)
+#   T2: ./shs/navegar_tb4.sh --bag         # nav contra el bag (mapa maze_slam.yaml)
+#   Nota: el bag ejecuta la trayectoria grabada, cmd_vel no mueve nada. Sirve
+#   para validar MCL, plan y RViz sin robot.
+#
+# Antes de correr en el ROBOT REAL:
 #   1) TB4 encendido y booteado.
 #   2) export ROS_DOMAIN_ID=<X>   (el mismo que usa el TB4).
 #   3) Tener un mapa (default: maps/laberinto_lab_*.yaml o maps/maze_slam.yaml).
@@ -34,6 +41,7 @@ WITH_RVIZ=1
 MAP=""
 VMAX="0.12"
 WMAX="0.8"
+USE_SIM=false     # --bag lo pone en true (rosbag publica /clock)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ns)       NS="$2"; shift 2 ;;
@@ -41,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --map)      MAP="$2"; shift 2 ;;
         --v-max)    VMAX="$2"; shift 2 ;;
         --w-max)    WMAX="$2"; shift 2 ;;
+        --bag)      USE_SIM=true; shift ;;
         *)          echo "arg desconocido: $1" >&2; shift ;;
     esac
 done
@@ -64,7 +73,7 @@ fi
 
 tb4_precheck "$NS" "/$NS/scan" "/$NS/odom"
 
-echo "Navegar TB4: ns=$NS mapa=$MAP v_max=$VMAX w_max=$WMAX"
+echo "Navegar TB4: ns=$NS mapa=$MAP v_max=$VMAX w_max=$WMAX use_sim_time=$USE_SIM"
 
 cleanup() {
     [[ -n "${RVIZ_PID:-}" ]] && kill "$RVIZ_PID" 2>/dev/null || true
@@ -77,13 +86,14 @@ trap cleanup EXIT INT TERM
 if [[ "$WITH_RVIZ" -eq 1 ]]; then
     RVIZ_CFG="$WS_DIR/src/maze_nav/rviz/nav.rviz"
     rviz2 -d "$RVIZ_CFG" \
-        --ros-args -p use_sim_time:=false \
+        --ros-args -p use_sim_time:="$USE_SIM" \
         -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" &
     RVIZ_PID=$!
 fi
 
 ros2 launch maze_nav nav_tb4_live.launch.py \
-    map_yaml:="$MAP" ns:="$NS" v_max:="$VMAX" w_max:="$WMAX" &
+    map_yaml:="$MAP" ns:="$NS" v_max:="$VMAX" w_max:="$WMAX" \
+    use_sim_time:="$USE_SIM" &
 STACK_PID=$!
 
 wait -n

@@ -6,8 +6,13 @@
 #   ./shs/mapear_tb4.sh                     # default ns=tb4_0
 #   ./shs/mapear_tb4.sh --ns tb4_1          # el TB4 del lab
 #   ./shs/mapear_tb4.sh --ns tb4_1 --no-rviz
+#   ./shs/mapear_tb4.sh --bag               # probar contra rosbag (sim_time=true)
 #
-# Antes de correr:
+# Probar sin robot (validacion previa al turno):
+#   T1: ./shs/bag.sh                # reproduce el rosbag de mapeo del laberinto
+#   T2: ./shs/mapear_tb4.sh --bag   # SLAM contra ese bag (ns por defecto=tb4_0)
+#
+# Antes de correr en el ROBOT REAL:
 #   1) TB4 encendido y booteado.
 #   2) export ROS_DOMAIN_ID=<X>   (el mismo que usa el TB4).
 #   3) ros2 topic list | grep tb4_1   -> tenes que ver scan/odom/tf.
@@ -32,17 +37,19 @@ source "$INSTALL_BASE/local_setup.bash"
 
 NS="tb4_0"
 WITH_RVIZ=1
+USE_SIM=false     # --bag lo pone en true (rosbag publica /clock)
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ns)       NS="$2"; shift 2 ;;
         --no-rviz)  WITH_RVIZ=0; shift ;;
+        --bag)      USE_SIM=true; shift ;;
         *)          echo "arg desconocido: $1" >&2; shift ;;
     esac
 done
 
 tb4_precheck "$NS" "/$NS/scan" "/$NS/odom"
 
-echo "Mapear TB4: ns=$NS use_sim_time=false"
+echo "Mapear TB4: ns=$NS use_sim_time=$USE_SIM"
 
 cleanup() {
     [[ -n "${RVIZ_PID:-}" ]] && kill "$RVIZ_PID" 2>/dev/null || true
@@ -56,12 +63,13 @@ if [[ "$WITH_RVIZ" -eq 1 ]]; then
     RVIZ_CFG="$WS_DIR/src/maze_slam/rviz/maze_slam.rviz"
     if [[ ! -f "$RVIZ_CFG" ]]; then RVIZ_CFG="$WS_DIR/src/maze_slam/rviz/casa.rviz"; fi
     rviz2 -d "$RVIZ_CFG" \
-        --ros-args -p use_sim_time:=false \
+        --ros-args -p use_sim_time:="$USE_SIM" \
         -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" &
     RVIZ_PID=$!
 fi
 
-ros2 launch maze_slam slam_tb4_live.launch.py ns:="$NS" &
+# use_sim_time va como override a la launch a traves de --ros-args del proceso.
+ros2 launch maze_slam slam_tb4_live.launch.py ns:="$NS" use_sim_time:="$USE_SIM" &
 STACK_PID=$!
 
 wait -n
