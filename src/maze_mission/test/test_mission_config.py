@@ -29,3 +29,14 @@ def test_field_defaults_cubre_todos_los_campos():
     assert 'goal_pose_topic' in defaults
     assert defaults['pose_topic_type'] == 'pose_with_covariance'
     assert defaults['map_topic'] == '/map'
+
+
+def test_config_tiene_parametros_de_frontera():
+    cfg = MissionConfig()
+    assert cfg.frontier_alpha == 0.1
+    assert cfg.frontier_min_cells == 4
+
+
+def test_from_dict_acepta_frontera():
+    cfg = MissionConfig.from_dict({'frontier_alpha': 0.5, 'frontier_min_cells': 8})
+    assert cfg.frontier_alpha == 0.5 and cfg.frontier_min_cells == 8

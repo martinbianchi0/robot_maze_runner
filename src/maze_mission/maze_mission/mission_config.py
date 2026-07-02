@@ -41,6 +41,10 @@ class MissionConfig:
     cone_range_mode: str = 'nearest'
     # Busqueda / percepcion.
     waypoints_file: str = ''
+    # Exploracion por fronteras (reemplaza waypoints_file). alpha balancea
+    # ganancia (tamanio de cluster) vs costo de camino; min_cells descarta ruido.
+    frontier_alpha: float = 0.1
+    frontier_min_cells: int = 4
     detection_confidence_min: float = 0.4
     detection_stable_frames: int = 3
     verify_area_px_min: int = 1500          # area para confirmar cono cercano
