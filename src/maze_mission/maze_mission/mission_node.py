@@ -106,6 +106,7 @@ class MissionNode(Node):
         self.replan_count = 0
         self.wp_sent = False
         self._frontier_excluded = set()   # celdas goal rechazadas en el episodio actual
+        self._explore_empty_since = None  # inicio de la racha sin fronteras (para no abortar al arranque)
         self._last_note = ''
 
         latched = QoSProfile(depth=1)
@@ -344,9 +345,19 @@ class MissionNode(Node):
                 alpha=self.cfg.frontier_alpha,
                 exclude=self._frontier_excluded)
             if goal is None:
-                self._note('laberinto explorado sin encontrar el cono')
-                self._to(MissionState.FAILURE)
+                # None ambiguo: "mapa aun sin fronteras" (SLAM recien arranca, casi todo
+                # desconocido) vs "laberinto realmente explorado". Solo se aborta si
+                # persiste sin fronteras un tiempo de gracia, dandole al SLAM tiempo de
+                # construir mapa al inicio en vez de fallar en el primer tick.
+                if self._explore_empty_since is None:
+                    self._explore_empty_since = self.get_clock().now()
+                empty_s = (self.get_clock().now()
+                           - self._explore_empty_since).nanoseconds * 1e-9
+                if empty_s > self.cfg.explore_empty_timeout_s:
+                    self._note('laberinto explorado sin encontrar el cono')
+                    self._to(MissionState.FAILURE)
                 return
+            self._explore_empty_since = None
             if self._emit_goal(goal.x, goal.y, goal.yaw):
                 self.wp_sent = True
                 self._frontier_excluded = set()
@@ -358,6 +369,7 @@ class MissionNode(Node):
             # llegamos a la frontera; el mapa crecio -> recalcular sin exclusiones
             self.wp_sent = False
             self._frontier_excluded = set()
+            self._explore_empty_since = None
 
     def _state_cone_detected(self):
         det = self._current_cone()

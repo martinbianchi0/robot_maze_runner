@@ -44,6 +44,9 @@ class MissionConfig:
     # ganancia (tamanio de cluster) vs costo de camino; min_cells descarta ruido.
     frontier_alpha: float = 0.1
     frontier_min_cells: int = 4
+    # Tiempo de gracia sin fronteras antes de declarar el laberinto explorado (FAILURE).
+    # Evita abortar en el primer tick, cuando el SLAM aun no construyo mapa.
+    explore_empty_timeout_s: float = 12.0
     # Convergencia de la MCL (estado LOCALIZE): spread maximo de /particlecloud
     # para considerar la localizacion confiable. Si la nube nunca llega (harness
     # sin MCL, p.ej. fake_diff_drive), tras localize_cloud_grace_s se sigue con
