@@ -77,20 +77,27 @@ secuencia **PLANNING -> FOLLOWING -> ALIGNING -> REACHED** con la pose final a
 toma-2. No usa `/scan` (el navigator planifica y sigue sobre el mapa estatico; sin
 scan no hace evitacion de obstaculos, pero el contrato de goal se valida igual).
 
-## GAP sim-to-real: orientacion del LIDAR real (IMPORTANTE)
+## GAP sim-to-real: orientacion del LIDAR real (RESUELTO)
 
-El `localizer` (MCL) y el navigator (`_register_obstacle_from_scan`) fueron
-escritos para el TB3 simulado: asumen el scan ALINEADO con el frente del robot y
-usan `scan_x_offset=-0.032` (base_scan del burger). Pero el TB4 real tiene el
-RPLIDAR montado a **+90 deg** (`rplidar_link`, ver `PARTE_C_ESTIMACION_CONO.md`),
-offset -0.04 m. El localizer calcula el endpoint del rayo como
-`pose + r*dir(yaw + scan_angle)` (sin offset de rotacion), asi que la correccion
-MCL quedaria rotada 90 deg contra el mapa -> NO localizaria sobre el bag real.
-Fix (porteo Parte A/B a real): sumar `scan_yaw_offset` (+pi/2 real, 0 sim) al
-angulo del rayo y usar -0.04 de offset. Cambio chico y retrocompatible en
-`maze_nav` (default 0 = comportamiento actual), a COORDINAR con el equipo.
-Alternativa sin tocar maze_nav: un shim que republica el scan con
-`angle_min += pi/2` (`scripts/scan_reframe.py`).
+El `localizer` (MCL) y el navigator fueron escritos para el TB3 simulado:
+asumian el scan ALINEADO con el frente del robot y `scan_x_offset=-0.032`
+(base_scan del burger) hardcodeado. Pero el TB4 real tiene el RPLIDAR montado a
+**+90 deg** (`rplidar_link`, ver `PARTE_C_ESTIMACION_CONO.md`), offset -0.04 m.
+
+**Fix APLICADO en maze_nav** (retrocompatible, defaults = comportamiento sim):
+`scan_yaw_offset` (rad) y `scan_x_offset` (m) son parametros del `localizer`
+(endpoint del rayo = `pose + r*dir(yaw + scan_yaw_offset + scan_angle)`) y del
+`navigator` (`_forward_clearance` y `_register_obstacle_from_scan`), expuestos
+como argumentos de `nav.launch.py`. Para el TB4 real:
+
+```bash
+ros2 launch maze_nav nav.launch.py map_yaml:=maps/maze_slam.yaml \
+  use_sim_time:=false scan_topic:=/tb4_0/scan odom_topic:=/tb4_0/odom \
+  scan_yaw_offset:=1.5708 scan_x_offset:=-0.04 v_max:=0.12 w_max:=0.8
+```
+
+El shim `scripts/scan_reframe.py` (republica el scan con `angle_min += pi/2`)
+queda como alternativa/plan B, ya no es necesario.
 
 **C3 validado (consistencia scan<->odom):** `scripts/scan_match_validate.py`
 localiza globalmente el primer scan del bag y dead-reckona con odom sobre ~1.8 m.
