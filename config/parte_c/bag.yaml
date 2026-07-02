@@ -26,5 +26,4 @@ mission_node:
     map_frame: map
     lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
     inflation_radius_m: 0.26
-    waypoints_file: config/parte_c/waypoints_laberinto.yaml
     control_hz: 5.0

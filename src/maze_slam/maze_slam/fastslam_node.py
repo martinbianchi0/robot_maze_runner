@@ -276,7 +276,7 @@ class FastSLAMNode(Node):
         self.pub_belief.publish(ps)
 
         pc = PoseWithCovarianceStamped()
-        pc.header.frame_id = 'map'
+        pc.header.frame_id = self.map_frame
         pc.header.stamp = ps.header.stamp
         pc.pose.pose.position.x = float(best.x)
         pc.pose.pose.position.y = float(best.y)
@@ -284,7 +284,7 @@ class FastSLAMNode(Node):
         cov = [0.0] * 36
         cov[0] = cov[7] = 0.05      # var x, y
         cov[35] = 0.05              # var yaw
-        pc.pose.covariance = cov
+        pc.pose.covariance = tuple(cov)
         self.pub_amcl.publish(pc)
 
         # particulas

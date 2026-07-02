@@ -39,9 +39,7 @@ class MissionConfig:
     lidar_offset_x: float = -0.04
     lidar_sector_halfwidth: int = 3
     cone_range_mode: str = 'nearest'
-    # Busqueda / percepcion.
-    waypoints_file: str = ''
-    # Exploracion por fronteras (reemplaza waypoints_file). alpha balancea
+    # Exploracion por fronteras. alpha balancea
     # ganancia (tamanio de cluster) vs costo de camino; min_cells descarta ruido.
     frontier_alpha: float = 0.1
     frontier_min_cells: int = 4

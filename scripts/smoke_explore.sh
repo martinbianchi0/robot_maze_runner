@@ -23,14 +23,15 @@ STACK_PID=$!
 sleep 3
 
 echo "[smoke] registrando /goal_pose durante ${DURATION}s..."
-timeout "${DURATION}" ros2 topic echo --once /map >/dev/null 2>&1 || true
-timeout "${DURATION}" ros2 topic echo /goal_pose > /tmp/explore_goals.txt 2>&1 || true
+timeout 10 ros2 topic echo --once /map >/dev/null 2>&1 || true
+GOALS_FILE=$(mktemp /tmp/explore_goals.XXXXXX)
+timeout "${DURATION}" ros2 topic echo /goal_pose > "$GOALS_FILE" 2>&1 || true
 
 echo "[smoke] apagando..."
 kill "${STACK_PID}" "${GZ_PID}" 2>/dev/null || true
 wait 2>/dev/null || true
 
-GOALS=$(grep -c 'position' /tmp/explore_goals.txt || true)
+GOALS=$(grep -c 'position' "$GOALS_FILE" || true)
 echo "[smoke] goals de frontera emitidos (lineas position): ${GOALS}"
 if [ "${GOALS}" -ge 1 ]; then
   echo "[smoke] OK: la mision emitio al menos un goal de frontera."
