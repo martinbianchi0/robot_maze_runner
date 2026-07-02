@@ -20,7 +20,7 @@ def generate_launch_description():
             output='screen',
         ),
         Node(
-            package='maze_mission', executable='mission_node', name='mission_node',
+            package='maze_mission', executable='mission', name='mission_node',
             output='screen',
         ),
     ])
