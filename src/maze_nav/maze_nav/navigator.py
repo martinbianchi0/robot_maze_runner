@@ -14,6 +14,7 @@ Maquina de estados:
     RECOVERY  -> obstaculo bloqueando; re-planifica esquivandolo
 """
 import heapq
+import json
 import math
 import numpy as np
 import rclpy
@@ -55,6 +56,12 @@ class Navigator(Node):
         self.declare_parameter('safety_stop', 0.22)    # m, freno de emergencia
         self.declare_parameter('control_rate', 20.0)
         self.declare_parameter('scan_topic', '/scan')
+        self.declare_parameter('max_recovery_attempts', 3)
+        self.declare_parameter('recovery_hold_s', 0.8)
+        self.declare_parameter('recovery_backoff_s', 0.45)
+        self.declare_parameter('recovery_backoff_speed', -0.05)
+        self.declare_parameter('front_blocked_confirmations', 2)
+        self.declare_parameter('front_obstacle_mark_radius', 0.12)
         # Montaje del LIDAR respecto a base: offset lineal (TB3 burger: base_scan
         # 3.2 cm atras; TB4 real: -0.04) y angular (TB3 sim: 0; TB4 real: el
         # RPLIDAR esta a +90 deg -> +pi/2). Ver INTERFAZ_MAZE_NAV.md.
@@ -71,6 +78,14 @@ class Navigator(Node):
         self.safety_stop = float(self.get_parameter('safety_stop').value)
         self.scan_dx = float(self.get_parameter('scan_x_offset').value)
         self.scan_dyaw = float(self.get_parameter('scan_yaw_offset').value)
+        self.max_recovery_attempts = int(self.get_parameter('max_recovery_attempts').value)
+        self.recovery_hold_s = float(self.get_parameter('recovery_hold_s').value)
+        self.recovery_backoff_s = float(self.get_parameter('recovery_backoff_s').value)
+        self.recovery_backoff_speed = float(self.get_parameter('recovery_backoff_speed').value)
+        self.front_blocked_confirmations = int(
+            self.get_parameter('front_blocked_confirmations').value)
+        self.front_obstacle_mark_radius = float(
+            self.get_parameter('front_obstacle_mark_radius').value)
 
         self.map = None                 # dict con occ,res,origin,H,W
         self.cost = None                # EDT (m) a obstaculo, para penalizar cercania
@@ -82,6 +97,16 @@ class Navigator(Node):
         self.path_idx = 0               # avanza monotono a lo largo de self.path
         self.state = 'IDLE'
         self.scan = None
+        self.last_forward_clearance = None
+        self.last_dyn_added = 0
+        self.last_cmd = (0.0, 0.0)
+        self.last_debug_note = 'init'
+        self.last_plan_cells = 0
+        self.last_plan_length_m = 0.0
+        self.recovery_attempts = 0
+        self.recovery_started_s = None
+        self.front_blocked_hits = 0
+        self.blocked_reason = ''
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -94,6 +119,7 @@ class Navigator(Node):
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
         self.state_pub = self.create_publisher(String, '/nav_state', 10)
+        self.debug_pub = self.create_publisher(String, '/nav_debug', 10)
 
         rate = float(self.get_parameter('control_rate').value)
         self.create_timer(1.0 / rate, self.control_loop)
@@ -132,9 +158,14 @@ class Navigator(Node):
         yaw = quat_to_yaw(msg.pose.orientation)
         self.goal = (msg.pose.position.x, msg.pose.position.y, yaw)
         self.dyn_obstacles.clear()
+        self.recovery_attempts = 0
+        self.recovery_started_s = None
+        self.front_blocked_hits = 0
+        self.blocked_reason = ''
         self.get_logger().info(
             f'Nuevo objetivo: ({self.goal[0]:.2f}, {self.goal[1]:.2f}, {math.degrees(yaw):.0f}deg)')
         self.state = 'PLANNING'
+        self.last_debug_note = 'goal_received'
 
     def on_scan(self, msg):
         self.scan = msg
@@ -170,6 +201,7 @@ class Navigator(Node):
         g = self._nearest_free(*world_to_grid(self.goal[0], self.goal[1], origin, res))
         if s is None or g is None:
             self.get_logger().warn('Start u objetivo sin celda navegable cercana')
+            self.last_debug_note = 'plan_failed_no_nearest_free'
             return False
 
         blocked = self.blocked
@@ -207,6 +239,7 @@ class Navigator(Node):
                     heapq.heappush(open_heap, (ng + h((nx, ny), g), ng, (nx, ny)))
         if not found:
             self.get_logger().warn('A*: no se encontro camino al objetivo')
+            self.last_debug_note = 'plan_failed_astar_no_path'
             return False
 
         # reconstruir y pasar a mundo
@@ -216,6 +249,12 @@ class Navigator(Node):
         cells.reverse()
         self.path = [grid_to_world(gx, gy, origin, res) for (gx, gy) in cells]
         self.path_idx = 0
+        self.last_plan_cells = len(self.path)
+        self.last_plan_length_m = sum(
+            math.hypot(x1 - x0, y1 - y0)
+            for (x0, y0), (x1, y1) in zip(self.path, self.path[1:])
+        )
+        self.last_debug_note = 'plan_ok'
         self._publish_path()
         return True
 
@@ -288,55 +327,154 @@ class Navigator(Node):
         if added:
             self._build_costmap()
             self.get_logger().info(f'Obstaculo no mapeado: +{added} celdas, re-planificando')
+        self.last_dyn_added = added
         return added
+
+    def _mark_front_blockage(self):
+        """Marca una barrera chica al frente cuando el LIDAR ve algo demasiado
+        cerca pero los hits finos no alcanzan para registrar un obstaculo nuevo.
+
+        Es deliberadamente conservador: solo se usa tras bloqueos frontales
+        repetidos y se limpia al recibir un nuevo goal.
+        """
+        if self.map is None or self.pose is None:
+            return 0
+        px, py, pth = self.pose
+        res, origin = self.map['res'], self.map['origin']
+        H, W = self.map['H'], self.map['W']
+        clearance = self.last_forward_clearance
+        if clearance is None or not math.isfinite(clearance):
+            clearance = self.safety_stop
+        mark_dist = max(self.safety_stop, min(0.60, clearance + 0.05))
+        mark_radius_cells = max(1, int(math.ceil(self.front_obstacle_mark_radius / res)))
+        added = 0
+        for da in (-0.35, -0.18, 0.0, 0.18, 0.35):
+            x = px + mark_dist * math.cos(pth + da)
+            y = py + mark_dist * math.sin(pth + da)
+            gx = int((x - origin[0]) / res)
+            gy = int((y - origin[1]) / res)
+            for yy in range(gy - mark_radius_cells, gy + mark_radius_cells + 1):
+                for xx in range(gx - mark_radius_cells, gx + mark_radius_cells + 1):
+                    if not (0 <= xx < W and 0 <= yy < H):
+                        continue
+                    if math.hypot(xx - gx, yy - gy) > mark_radius_cells:
+                        continue
+                    if (xx, yy) in self.dyn_obstacles:
+                        continue
+                    self.dyn_obstacles.add((xx, yy))
+                    added += 1
+        if added:
+            self._build_costmap()
+            self.get_logger().warn(
+                f'Bloqueo frontal repetido: marco +{added} celdas dinamicas')
+        self.last_dyn_added += added
+        return added
+
+    def _now_s(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _recovery_elapsed(self):
+        if self.recovery_started_s is None:
+            return 0.0
+        return max(0.0, self._now_s() - self.recovery_started_s)
+
+    def _declare_blocked(self, reason):
+        self.blocked_reason = reason
+        self.state = 'IDLE'
+        self.recovery_started_s = None
+        self._stop()
+        self.get_logger().warn(f'Bloqueado: {reason}; robot detenido')
+        self._publish_debug(reason)
+
+    def _enter_recovery(self, reason):
+        if self.recovery_attempts >= self.max_recovery_attempts:
+            self._declare_blocked('blocked_max_recovery_attempts')
+            return
+        self.recovery_attempts += 1
+        self.recovery_started_s = self._now_s()
+        self.state = 'RECOVERY'
+        self._stop()
+        self._publish_debug(reason)
+
+    def _handle_front_blocked(self, reason):
+        self.front_blocked_hits += 1
+        added = self._register_obstacle_from_scan()
+        if added == 0 and self.front_blocked_hits >= self.front_blocked_confirmations:
+            added = self._mark_front_blockage()
+        if added == 0:
+            reason = f'{reason}_unregistered'
+        self._enter_recovery(reason)
 
     # --------------------------------------------------------------------- #
     #   Control                                                             #
     # --------------------------------------------------------------------- #
     def control_loop(self):
+        self.last_dyn_added = 0
         self.state_pub.publish(String(data=self.state))
         if self.state in ('IDLE', 'REACHED'):
             self._stop()
+            self._publish_debug('stop_idle_or_reached')
             return
         if self.pose is None:
             self._stop()
+            self._publish_debug('waiting_pose')
             return
 
         if self.state == 'PLANNING':
             if self.plan():
                 self.state = 'FOLLOWING'
+                note = 'plan_ok_following'
             else:
                 self.state = 'IDLE'
+                note = self.last_debug_note
+            self._publish_debug(note)
             return
 
         # freno de emergencia SOLO por obstaculo NO mapeado (evita loop
         # FOLLOWING<->RECOVERY cuando el plan pasa cerca de una pared conocida
         # y el error de MCL hace que el LIDAR la vea a <safety_stop).
         clr = self._forward_clearance()
+        self.last_forward_clearance = clr
         if self.state == 'FOLLOWING' and clr is not None and clr < self.safety_stop:
-            added = self._register_obstacle_from_scan()
-            if added > 0:
-                self._stop()
-                self.state = 'RECOVERY'
-                return
-            # pared ya mapeada + error de localizacion: reducir velocidad, no frenar
+            self._handle_front_blocked('front_blocked_dynamic_obstacle')
+            return
+        if self.state == 'FOLLOWING' and (clr is None or clr >= self.safety_stop):
+            self.front_blocked_hits = 0
 
         if self.state == 'RECOVERY':
+            elapsed = self._recovery_elapsed()
+            if elapsed < self.recovery_hold_s:
+                self._stop()
+                self._publish_debug('recovery_hold')
+                return
+            if elapsed < self.recovery_hold_s + self.recovery_backoff_s:
+                tw = Twist()
+                tw.linear.x = min(0.0, self.recovery_backoff_speed)
+                self._publish_cmd(tw)
+                self._publish_debug('recovery_short_backoff')
+                return
+
+            clr = self._forward_clearance()
+            self.last_forward_clearance = clr
+            if clr is not None and clr < self.safety_stop:
+                self._handle_front_blocked('recovery_front_still_blocked')
+                return
             if self.plan():
                 self.state = 'FOLLOWING'
+                self.recovery_started_s = None
+                self._publish_debug('recovery_replan_ok')
             else:
-                # sin camino: retroceder un poco y reintentar
-                tw = Twist()
-                tw.linear.x = -0.06
-                self.cmd_pub.publish(tw)
+                self._declare_blocked('blocked_no_recovery_plan')
             return
 
         if self.state == 'FOLLOWING':
             self._follow()
+            self._publish_debug('following')
             return
 
         if self.state == 'ALIGNING':
             self._align()
+            self._publish_debug('aligning')
             return
 
     def _follow(self):
@@ -345,11 +483,13 @@ class Navigator(Node):
         dist_goal = math.hypot(gx - px, gy - py)
         if dist_goal < self.goal_tol:
             self.state = 'ALIGNING'
+            self.last_debug_note = 'goal_position_reached_aligning'
             return
         # pure pursuit: buscar el punto del camino a 'lookahead' del robot
         target = self._lookahead_point(px, py)
         if target is None:
             self.state = 'ALIGNING'
+            self.last_debug_note = 'path_exhausted_aligning'
             return
         ang = math.atan2(target[1] - py, target[0] - px)
         err = wrap_angle(ang - pth)
@@ -361,7 +501,7 @@ class Navigator(Node):
             slow = max(0.3, 1.0 - abs(err))
             tw.linear.x = self.v_max * slow * min(1.0, dist_goal / 0.3)
         tw.angular.z = max(-self.w_max, min(self.w_max, 1.8 * err))
-        self.cmd_pub.publish(tw)
+        self._publish_cmd(tw)
 
     def _lookahead_point(self, px, py):
         if not self.path:
@@ -392,6 +532,8 @@ class Navigator(Node):
         if abs(err) < self.yaw_tol:
             self._stop()
             self.state = 'REACHED'
+            self.recovery_started_s = None
+            self.last_debug_note = 'goal_reached'
             self.get_logger().info('Objetivo alcanzado (posicion y angulo).')
             return
         tw = Twist()
@@ -402,10 +544,56 @@ class Navigator(Node):
         if abs(w) < min_w:
             w = math.copysign(min_w, err)
         tw.angular.z = max(-self.w_max, min(self.w_max, w))
-        self.cmd_pub.publish(tw)
+        self._publish_cmd(tw)
 
     def _stop(self):
-        self.cmd_pub.publish(Twist())
+        self._publish_cmd(Twist())
+
+    def _publish_cmd(self, msg):
+        self.last_cmd = (float(msg.linear.x), float(msg.angular.z))
+        self.cmd_pub.publish(msg)
+
+    def _publish_debug(self, note):
+        if note:
+            self.last_debug_note = note
+        payload = {
+            'version': 1,
+            'stamp_s': self.get_clock().now().nanoseconds * 1e-9,
+            'state': self.state,
+            'reason': self.last_debug_note,
+            'note': self.last_debug_note,
+            'pose': None,
+            'goal': None,
+            'path_len': int(len(self.path)),
+            'path_idx': int(self.path_idx),
+            'last_plan_cells': int(self.last_plan_cells),
+            'last_plan_length_m': float(self.last_plan_length_m),
+            'forward_clearance_m': self.last_forward_clearance,
+            'safety_stop_m': float(self.safety_stop),
+            'dyn_obstacle_cells': int(len(self.dyn_obstacles)),
+            'last_dyn_added': int(self.last_dyn_added),
+            'recovery_attempts': int(self.recovery_attempts),
+            'max_recovery_attempts': int(self.max_recovery_attempts),
+            'recovery_elapsed_s': float(self._recovery_elapsed()),
+            'front_blocked_hits': int(self.front_blocked_hits),
+            'blocked_reason': self.blocked_reason,
+            'cmd': {'linear_x': self.last_cmd[0], 'angular_z': self.last_cmd[1]},
+            'robot_radius_m': float(self.robot_radius),
+            'inflation_m': float(self.inflation),
+        }
+        if self.pose is not None:
+            payload['pose'] = {
+                'x': float(self.pose[0]),
+                'y': float(self.pose[1]),
+                'yaw': float(self.pose[2]),
+            }
+        if self.goal is not None:
+            payload['goal'] = {
+                'x': float(self.goal[0]),
+                'y': float(self.goal[1]),
+                'yaw': float(self.goal[2]),
+            }
+        self.debug_pub.publish(String(data=json.dumps(payload, sort_keys=True)))
 
 
 def wrap_angle_vec(a):
