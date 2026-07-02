@@ -11,8 +11,9 @@ Uso: python scripts/fake_diff_drive.py --ros-args -p init_x:=2.5 -p init_y:=-2.0
 import math
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, Twist
 from rclpy.node import Node
+from tf2_ros import TransformBroadcaster
 
 
 class FakeDiffDrive(Node):
@@ -25,12 +26,14 @@ class FakeDiffDrive(Node):
         rate = float(self.declare_parameter('rate', 30.0).value)
         cmd_topic = self.declare_parameter('cmd_vel_topic', '/cmd_vel').value
         pose_topic = self.declare_parameter('pose_topic', '/amcl_pose').value
+        self.publish_tf = bool(self.declare_parameter('publish_tf', False).value)
 
         self.v = 0.0
         self.w = 0.0
         self.dt = 1.0 / rate
         self.create_subscription(Twist, cmd_topic, self._on_cmd, 10)
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, pose_topic, 10)
+        self.tfb = TransformBroadcaster(self) if self.publish_tf else None
         self.create_timer(self.dt, self._step)
         self.get_logger().info(
             f'fake_diff_drive en ({self.x:.2f},{self.y:.2f}) '
@@ -52,6 +55,17 @@ class FakeDiffDrive(Node):
         msg.pose.pose.orientation.z = math.sin(self.yaw / 2.0)
         msg.pose.pose.orientation.w = math.cos(self.yaw / 2.0)
         self.pose_pub.publish(msg)
+
+        if self.tfb is not None:
+            tf = TransformStamped()
+            tf.header.stamp = msg.header.stamp
+            tf.header.frame_id = 'map'
+            tf.child_frame_id = 'base_link'
+            tf.transform.translation.x = self.x
+            tf.transform.translation.y = self.y
+            tf.transform.rotation.z = msg.pose.pose.orientation.z
+            tf.transform.rotation.w = msg.pose.pose.orientation.w
+            self.tfb.sendTransform(tf)
 
 
 def main(args=None):
