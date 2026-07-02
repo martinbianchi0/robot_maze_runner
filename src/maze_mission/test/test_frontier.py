@@ -1,7 +1,7 @@
 import numpy as np
 
 from maze_mission.frontier import find_frontier_cells, cluster_frontiers, path_cost_field, select_frontier_goal
-from maze_mission.occupancy import GridSpec
+from maze_mission.occupancy import GridSpec, inflate_occupancy, world_to_grid
 
 
 def test_borde_libre_desconocido_es_frontera():
@@ -110,10 +110,36 @@ def test_goal_en_mundo_dentro_de_bounds():
 
 
 def test_inflation_no_bloquea_todas_las_fronteras():
-    # con inflacion > 0, las celdas frontera (que lindan con desconocido) no deben
-    # quedar todas infladas como obstaculo: debe seguir habiendo un goal alcanzable.
     grid = np.zeros((7, 7), dtype=np.int16)
     grid[:, 6] = -1
     out = select_frontier_goal(grid, _spec(), (0.0, 3.0),
                                inflation_cells=1, min_frontier_cells=1, alpha=0.1)
     assert out is not None
+    inflated = inflate_occupancy(grid, 1, unknown_as_obstacle=True)
+    gx, gy = world_to_grid(out.x, out.y, _spec())
+    assert 0 <= inflated[gy, gx] < 50   # el goal cae en celda navegable (no en el borde lethal)
+
+
+def test_goal_es_navegable_bajo_inflado_mayor():
+    grid = np.zeros((9, 9), dtype=np.int16)
+    grid[:, 8] = -1
+    out = select_frontier_goal(grid, _spec(), (0.0, 4.0),
+                               inflation_cells=2, min_frontier_cells=1, alpha=0.1)
+    assert out is not None
+    inflated = inflate_occupancy(grid, 2, unknown_as_obstacle=True)
+    gx, gy = world_to_grid(out.x, out.y, _spec())
+    assert 0 <= inflated[gy, gx] < 50
+
+
+def test_exclude_salta_el_goal():
+    grid = np.zeros((7, 7), dtype=np.int16)
+    grid[:, 6] = -1
+    first = select_frontier_goal(grid, _spec(), (0.0, 3.0),
+                                 inflation_cells=1, min_frontier_cells=1, alpha=0.1)
+    assert first is not None
+    gx, gy = world_to_grid(first.x, first.y, _spec())
+    again = select_frontier_goal(grid, _spec(), (0.0, 3.0),
+                                 inflation_cells=1, min_frontier_cells=1, alpha=0.1,
+                                 exclude={(gx, gy)})
+    # con la unica frontera excluida, no queda candidato -> None
+    assert again is None

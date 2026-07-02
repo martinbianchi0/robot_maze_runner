@@ -93,41 +93,60 @@ class FrontierGoal:
     gain: float
 
 
+def _pullback_goal(cluster, inflated, dist, lethal, snap_radius):
+    """Retrocede del centroide de la frontera (pegado al desconocido y por eso lethal
+    en el inflado) a la celda navegable mas cercana, y exige que sea alcanzable.
+    Devuelve (gx, gy, cost) o None."""
+    center = (cluster.centroid_gx, cluster.centroid_gy)
+    cell = nearest_free_cell(inflated, center, snap_radius, lethal)
+    if cell is None:
+        return None
+    gx, gy = cell
+    cost = int(dist[gy, gx])
+    if cost < 0:
+        return None
+    return gx, gy, cost
+
+
 def select_frontier_goal(grid, spec, robot_xy, *, lethal=50,
-                         inflation_cells, min_frontier_cells, alpha):
+                         inflation_cells, min_frontier_cells, alpha, exclude=None):
     grid = np.asarray(grid)
+    exclude = exclude or set()
     frontier_mask = find_frontier_cells(grid, lethal)
     clusters = cluster_frontiers(frontier_mask, min_frontier_cells)
     if not clusters:
         return None
 
-    # Solo las paredes reales inflan: el BFS ya no atraviesa desconocido (es -1, no
-    # libre), asi que inflar el desconocido solo volveria inalcanzables las celdas
-    # frontera (que por definicion lindan con desconocido). unknown_as_obstacle=False.
+    # Mismo criterio que el navigator y la validacion de la mision: pared mapeada Y
+    # desconocido son obstaculo, inflados por inflation_cells. La celda elegida es
+    # entonces navegable de punta a punta (modulo -> mision -> navigator). El goal se
+    # retrocede del borde a esa celda navegable; el LIDAR revela el desconocido desde
+    # ahi y el mapa crece.
     inflated = inflate_occupancy(grid, inflation_cells,
-                                 unknown_as_obstacle=False, lethal_threshold=lethal)
+                                 unknown_as_obstacle=True, lethal_threshold=lethal)
     start = world_to_grid(robot_xy[0], robot_xy[1], spec)
     start_free = nearest_free_cell(inflated, start, lethal_threshold=lethal)
     if start_free is None:
         return None
-    start = start_free
-    dist = path_cost_field(inflated, start, lethal)
+    dist = path_cost_field(inflated, start_free, lethal)
 
-    best = None
+    snap_radius = inflation_cells + 3
+    best = None  # (utility, gx, gy, cost, gain)
     for cluster in clusters:
-        reachable = [(int(dist[gy, gx]), gx, gy)
-                     for (gx, gy) in cluster.cells if dist[gy, gx] >= 0]
-        if not reachable:
+        goal = _pullback_goal(cluster, inflated, dist, lethal, snap_radius)
+        if goal is None:
             continue
-        cost, gx, gy = min(reachable)
+        gx, gy, cost = goal
+        if (gx, gy) in exclude:
+            continue
         gain = float(cluster.size)
         utility = gain - alpha * cost
         if best is None or utility > best[0]:
-            best = (utility, gx, gy, float(cost), gain)
+            best = (utility, gx, gy, cost, gain)
 
     if best is None:
         return None
     utility, gx, gy, cost, gain = best
     x, y = grid_to_world(gx, gy, spec)
     yaw = math.atan2(y - robot_xy[1], x - robot_xy[0])
-    return FrontierGoal(x=x, y=y, yaw=yaw, utility=utility, cost=cost, gain=gain)
+    return FrontierGoal(x=x, y=y, yaw=yaw, utility=utility, cost=float(cost), gain=gain)
