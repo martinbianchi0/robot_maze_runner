@@ -1,0 +1,42 @@
+# Perfil ROBOT REAL TurtleBot4 namespace /tb4_1/ para la Parte C (busqueda de cono
+# por waypoints con giro-scan). Igual que real.yaml pero:
+# - camara tb4_1: /tb4_1/color/preview/image (naming distinto al tb4_0 /oakd/rgb/*)
+#   y SIN camera_info -> el detector cae al fallback HFOV para el bearing del cono.
+# - scan en /tb4_1/scan.
+#
+# Lanzar la nav (namespaced) aparte:
+#   ros2 launch maze_nav nav_tb4_live.launch.py \
+#     map_yaml:=maps/laberinto_lab_20260702.yaml ns:=tb4_1
+
+cone_detector:
+  ros__parameters:
+    image_topic: /tb4_1/color/preview/image
+    camera_info_topic: /tb4_1/color/preview/camera_info
+    detections_topic: cone_detections
+    image_qos: best_effort
+    publish_debug: true
+
+mission_node:
+  ros__parameters:
+    goal_pose_topic: /goal_pose
+    nav_state_topic: /nav_state
+    map_topic: /map
+    pose_topic: /amcl_pose
+    pose_topic_type: pose_with_covariance
+    scan_topic: /tb4_1/scan
+    detections_topic: cone_detections
+    mission_state_topic: /mission_state
+    particlecloud_topic: /particlecloud
+    map_frame: map
+    lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
+    inflation_radius_m: 0.26
+    # LOCALIZE con giro-scan: gira en el lugar para que la MCL converja antes de
+    # navegar. Umbral algo mas laxo que tb4_0 por el mapa vivo del laberinto.
+    localize_xy_std_max: 0.35
+    localize_yaw_std_max: 0.45
+    waypoints_file: config/parte_c/waypoints_laberinto.yaml
+    scan_turn_steps: 3          # giro-scan de 360 en cada waypoint
+    control_hz: 4.0
+    localize_timeout_s: 45.0
+    goal_timeout_s: 40.0
+    blocked_timeout_s: 8.0

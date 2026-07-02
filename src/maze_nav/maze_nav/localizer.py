@@ -98,6 +98,10 @@ class Localizer(Node):
         self.cur_odom = None             # (x,y,theta) mas reciente
         self.prev_est = None             # estimado anterior (histeresis del modo)
         self.have_map = False
+        # Frame padre del odom. Se auto-detecta con el 1er msg. Default sim
+        # (calc_odom); en TB4 real es 'odom' -> sin auto-detectar, la TF
+        # map->calc_odom queda desconectada del arbol y RViz dropea el scan.
+        self.odom_frame_id = 'calc_odom'
 
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -138,6 +142,8 @@ class Localizer(Node):
     def on_odom(self, msg):
         p = msg.pose.pose
         self.cur_odom = (p.position.x, p.position.y, quat_to_yaw(p.orientation))
+        if msg.header.frame_id:
+            self.odom_frame_id = msg.header.frame_id
         if self.last_odom is None:
             self.last_odom = self.cur_odom
 
@@ -336,7 +342,7 @@ class Localizer(Node):
             t = TransformStamped()
             t.header.stamp = stamp
             t.header.frame_id = 'map'
-            t.child_frame_id = 'calc_odom'
+            t.child_frame_id = self.odom_frame_id
             t.transform.translation.x = tx
             t.transform.translation.y = ty
             t.transform.rotation = yaw_to_quat(th_mo)

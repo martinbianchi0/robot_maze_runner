@@ -32,11 +32,18 @@ mission_node:
     particlecloud_topic: /particlecloud
     map_frame: map
     lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
-    inflation_radius_m: 0.26
+    # 0.20 (no 0.26): los pasillos del laberinto real son angostos; a 0.26 la
+    # inflacion los sella y solo queda ~5 m2 alcanzable -> el resto del laberinto
+    # (y el cono) quedan inaccesibles y TODOS los waypoints se rechazan. A 0.20 se
+    # alcanza todo el mapa (~10 m2). DEBE coincidir con robot_radius+inflation del
+    # navigator y con --inflation del generador de waypoints (ver CONTEXTO_LABO.md).
+    inflation_radius_m: 0.20
     # LOCALIZE: no navegar hasta que la MCL converja (spread de /particlecloud).
     localize_xy_std_max: 0.25
     localize_yaw_std_max: 0.4
-    waypoints_file: config/parte_c/waypoints_laberinto.yaml
+    # Regenerados sobre NUESTRO mapa (laberinto_lab_20260702) a 0.20 de inflacion.
+    # Los de maze_slam caian fuera del free space de este mapa (todos rechazados).
+    waypoints_file: config/parte_c/waypoints_lab_tb4_0.yaml
     scan_turn_steps: 3          # giro-scan de 360 en cada waypoint
     control_hz: 4.0
     localize_timeout_s: 45.0

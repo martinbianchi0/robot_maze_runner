@@ -1,0 +1,25 @@
+# Waypoints de busqueda del cono sobre el mapa del laberinto (frame map, m).
+# GENERADO por scripts/gen_search_waypoints.py sobre maps/laberinto_lab_20260702.yaml
+#   start=(0.0, 0.0)  coverage=1.5 m  inflacion=0.2 m
+# Cobertura: toda celda libre alcanzable queda a <= 1.50 m
+# (geodesicos) de un waypoint; todos caen en celda libre del mapa inflado.
+# La mision hace giro-scan de 360 en cada uno (scan_turn_steps).
+# Regenerar en el laboratorio si la pose de arranque real difiere:
+#   python3 scripts/gen_search_waypoints.py --start X Y
+waypoints:
+- {x: -1.58, y: 0.73, yaw: 2.72, scan: true}
+- {x: -0.74, y: -1.63, yaw: -1.23, scan: true}
+- {x: -0.25, y: -3.23, yaw: -1.28, scan: true}
+- {x: -2.12, y: -3.5, yaw: -3.0, scan: true}
+- {x: -1.61, y: -4.94, yaw: -1.23, scan: true}
+- {x: -0.2, y: -5.57, yaw: -0.42, scan: true}
+- {x: -1.63, y: -5.14, yaw: 2.86, scan: true}
+- {x: -0.04, y: -6.31, yaw: -0.63, scan: true}
+- {x: -0.74, y: -7.07, yaw: -2.31, scan: true}
+- {x: -2.57, y: -5.99, yaw: 2.61, scan: true}
+- {x: 0.19, y: -4.54, yaw: 0.48, scan: true}
+- {x: 0.46, y: -2.57, yaw: 1.44, scan: true}
+- {x: -2.36, y: -5.36, yaw: -2.36, scan: true}
+- {x: -1.94, y: -2.92, yaw: 1.4, scan: true}
+- {x: -1.88, y: -1.31, yaw: 1.53, scan: true}
+- {x: 0.64, y: -1.79, yaw: -0.19, scan: true}
