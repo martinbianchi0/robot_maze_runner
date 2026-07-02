@@ -27,7 +27,7 @@ from enum import Enum
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseArray, PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -37,6 +37,7 @@ from std_msgs.msg import String
 from maze_perception.detections import ConeDetections
 from maze_mission.cone_goal_estimator import cone_world_from_lidar
 from maze_mission.goal_validator import GoalStatus, ValidatorConfig, validate_goal
+from maze_mission.localization import cloud_spread, is_converged
 from maze_mission.mission_config import MissionConfig
 from maze_mission.occupancy import GridSpec, in_bounds, inflate_occupancy, world_to_grid
 from maze_mission.frontier import select_frontier_goal
@@ -95,6 +96,7 @@ class MissionNode(Node):
         self.scan = None            # LaserScan
         self.last_detections = None
         self.nav_state = None
+        self.cloud_stats = None     # (spread_xy, spread_yaw) de /particlecloud
 
         self.state = MissionState.INIT
         self.state_since = self.get_clock().now()
@@ -119,6 +121,7 @@ class MissionNode(Node):
         self.create_subscription(String, self.cfg.detections_topic, self._on_detections, 10)
         self.create_subscription(String, self.cfg.nav_state_topic, self._on_nav_state, 10)
         self.create_subscription(LaserScan, self.cfg.scan_topic, self._on_scan, sensor)
+        self.create_subscription(PoseArray, self.cfg.particlecloud_topic, self._on_cloud, 10)
         self._subscribe_pose(sensor)
 
         self.timer = self.create_timer(1.0 / max(1.0, self.cfg.control_hz), self._on_timer)
@@ -174,6 +177,12 @@ class MissionNode(Node):
     def _on_scan(self, msg: LaserScan):
         self.scan = msg
 
+    def _on_cloud(self, msg: PoseArray):
+        xs = [p.position.x for p in msg.poses]
+        ys = [p.position.y for p in msg.poses]
+        yaws = [yaw_from_quat(p.orientation) for p in msg.poses]
+        self.cloud_stats = cloud_spread(xs, ys, yaws)
+
     def _on_pose(self, msg: PoseStamped):
         self.pose = (msg.pose.position.x, msg.pose.position.y, yaw_from_quat(msg.pose.orientation))
 
@@ -219,6 +228,18 @@ class MissionNode(Node):
         if new_state != self.state:
             self.state = new_state
             self.state_since = self.get_clock().now()
+
+    def _to_search(self):
+        """Volver a SEARCH_CONE reseteando el estado de exploracion por fronteras.
+
+        Sin el reset, un REACHED del goal del CONO (que preempto a la frontera en
+        curso) se leia como frontera alcanzada y se recalculaba con el robot en
+        cualquier lado.
+        """
+        self.stable_count = 0
+        self.wp_sent = False
+        self._frontier_excluded = set()
+        self._to(MissionState.SEARCH_CONE)
 
     def _current_cone(self):
         if self.last_detections is None:
@@ -274,10 +295,25 @@ class MissionNode(Node):
             self._to(MissionState.LOCALIZE)
 
     def _state_localize(self):
-        # TODO(real): criterio de convergencia de la MCL (varianza de /particlecloud).
-        if self.pose is not None:
-            self._note('localizacion disponible')
-            self._to(MissionState.SEARCH_CONE)
+        if self.pose is None:
+            return
+        if self.cloud_stats is None:
+            # Sin /particlecloud (harness sin MCL, p.ej. fake_diff_drive): tras
+            # una gracia corta se sigue con la pose disponible, como antes.
+            if self._elapsed() > self.cfg.localize_cloud_grace_s:
+                self._note('localizacion disponible (sin /particlecloud)')
+                self._to_search()
+            return
+        sxy, syaw = self.cloud_stats
+        if is_converged(sxy, syaw, self.cfg.localize_xy_std_max,
+                        self.cfg.localize_yaw_std_max):
+            self._note(f'MCL convergida (std xy={sxy:.2f} m, yaw={syaw:.2f} rad)')
+            self._to_search()
+        elif self._elapsed() > self.cfg.localize_timeout_s:
+            # Nunca navegar sin localizacion convergida: se sigue esperando y se
+            # avisa al operador (re-fijar la pose con "2D Pose Estimate" en RViz).
+            self._note(f'MCL NO converge (std xy={sxy:.2f} m, yaw={syaw:.2f} rad): '
+                       're-fijar /initialpose en RViz')
 
     def _state_search_cone(self):
         det = self._current_cone()
@@ -326,8 +362,7 @@ class MissionNode(Node):
     def _state_cone_detected(self):
         det = self._current_cone()
         if det is None:
-            self.stable_count = 0
-            self._to(MissionState.SEARCH_CONE)
+            self._to_search()
             return
         self.chosen = det
         self._to(MissionState.ESTIMATE_CONE_GOAL)
@@ -338,7 +373,7 @@ class MissionNode(Node):
         est = self._estimate_cone(self.chosen)
         if est is None:
             self._note('sin rango LIDAR al cono (fallback servoing pendiente); sigo buscando')
-            self._to(MissionState.SEARCH_CONE)
+            self._to_search()
             return
         self.cone_goal = (est[0], est[1])
         self._to(MissionState.PLAN_TO_CONE)
@@ -347,16 +382,14 @@ class MissionNode(Node):
         cx, cy = self.cone_goal
         if self._cone_on_obstacle(cx, cy):
             self._note(f'cono en ({cx:.2f},{cy:.2f}) DETRAS DE PARED (obstaculo mapeado): rechazado')
-            self.stable_count = 0
-            self._to(MissionState.SEARCH_CONE)
+            self._to_search()
             return
         gx, gy = self._standoff((cx, cy))
         if self._emit_goal(gx, gy):
             self.replan_count = 0
             self._to(MissionState.NAVIGATE_TO_CONE)
         else:
-            self.stable_count = 0
-            self._to(MissionState.SEARCH_CONE)
+            self._to_search()
 
     def _state_navigate_to_cone(self):
         if self.nav_state == NAV_REACHED:
@@ -387,7 +420,7 @@ class MissionNode(Node):
             if self._emit_goal(gx, gy):
                 self._to(MissionState.NAVIGATE_TO_CONE)
                 return
-        self._to(MissionState.SEARCH_CONE)
+        self._to_search()
 
     def _state_verify_cone(self):
         det = self._current_cone()
@@ -395,7 +428,7 @@ class MissionNode(Node):
             self._to(MissionState.DONE)
         elif self._elapsed() > self.cfg.verify_timeout_s:
             self._note('no se confirmo el cono de cerca; sigo buscando')
-            self._to(MissionState.SEARCH_CONE)
+            self._to_search()
 
     def _state_done(self):
         self._note('MISION COMPLETA: cono rojo alcanzado y verificado')

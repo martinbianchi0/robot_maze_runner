@@ -2,8 +2,14 @@
 # Sensores en BEST_EFFORT. La nav de toma-2 tiene los topicos casi todos
 # hardcodeados (/map, /amcl_pose, /goal_pose, /cmd_vel, /nav_state); el switch a
 # /tb4_0/ se hace por remap/namespace al lanzar la nav, no por parametro (ver
-# INTERFAZ_MAZE_NAV.md). Velocidades conservadoras: se bajan por parametros del
-# navigator (v_max, w_max) en su launch. Tolerancias/timeouts mas amplios.
+# INTERFAZ_MAZE_NAV.md). Tolerancias/timeouts mas amplios.
+#
+# Lanzar la nav con el montaje del LIDAR del TB4 real (+90 deg, -4 cm) y
+# velocidades conservadoras (todo son args del launch, ya no hace falta el shim
+# scan_reframe.py):
+#   ros2 launch maze_nav nav.launch.py map_yaml:=maps/maze_slam.yaml \
+#     use_sim_time:=false scan_topic:=/tb4_0/scan odom_topic:=/tb4_0/odom \
+#     scan_yaw_offset:=1.5708 scan_x_offset:=-0.04 v_max:=0.12 w_max:=0.8
 
 cone_detector:
   ros__parameters:
@@ -23,9 +29,13 @@ mission_node:
     scan_topic: /tb4_0/scan
     detections_topic: cone_detections
     mission_state_topic: /mission_state
+    particlecloud_topic: /particlecloud
     map_frame: map
     lidar_yaw_offset: -1.5708   # TB4 real: LIDAR montado a +90 deg (validado en C1)
     inflation_radius_m: 0.26
+    # LOCALIZE: no navegar hasta que la MCL converja (spread de /particlecloud).
+    localize_xy_std_max: 0.25
+    localize_yaw_std_max: 0.4
     control_hz: 4.0
     localize_timeout_s: 45.0
     goal_timeout_s: 40.0

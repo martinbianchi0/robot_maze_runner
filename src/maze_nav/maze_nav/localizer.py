@@ -63,6 +63,11 @@ class Localizer(Node):
         # ~0.6 celdas y hacia que MCL nunca alineara con el mapa.
         self.declare_parameter('scan_x_offset', -0.032)
         self.declare_parameter('scan_y_offset', 0.0)
+        # Orientacion del montaje del LIDAR respecto a base. TB3 sim: 0.0
+        # (alineado al frente). TB4 real: el RPLIDAR esta a +90 deg
+        # (rplidar_link), o sea +pi/2. Validado en C3: con +90 el match
+        # scan<->mapa se mantiene ~0.99 sobre el bag (ver INTERFAZ_MAZE_NAV.md).
+        self.declare_parameter('scan_yaw_offset', 0.0)
 
         self.N = int(self.get_parameter('n_particles').value)
         self.sigma = float(self.get_parameter('sigma_hit').value)
@@ -77,6 +82,7 @@ class Localizer(Node):
         self.neff_ratio = float(self.get_parameter('resample_neff_ratio').value)
         self.scan_dx = float(self.get_parameter('scan_x_offset').value)
         self.scan_dy = float(self.get_parameter('scan_y_offset').value)
+        self.scan_dyaw = float(self.get_parameter('scan_yaw_offset').value)
         self.w_slow = 0.0
         self.w_fast = 0.0
         self.last_mean_w = 1.0   # para debug
@@ -192,8 +198,9 @@ class Localizer(Node):
         c, s = np.cos(pth), np.sin(pth)
         sx = px + c * self.scan_dx - s * self.scan_dy
         sy = py + s * self.scan_dx + c * self.scan_dy
-        ex = sx + r[None, :] * np.cos(pth + ang[None, :])
-        ey = sy + r[None, :] * np.sin(pth + ang[None, :])
+        # Angulo del rayo en mundo: yaw particula + montaje del LIDAR + angulo scan.
+        ex = sx + r[None, :] * np.cos(pth + self.scan_dyaw + ang[None, :])
+        ey = sy + r[None, :] * np.sin(pth + self.scan_dyaw + ang[None, :])
         gx = ((ex - ox) / res).astype(np.int32)
         gy = ((ey - oy) / res).astype(np.int32)
         inb = (gx >= 0) & (gx < W) & (gy >= 0) & (gy < H)

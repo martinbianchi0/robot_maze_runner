@@ -69,12 +69,28 @@ bash scripts/smoke_mission.sh reachable
 bash scripts/smoke_mission.sh wall
 ```
 
+## Resuelto despues de C5 (pre-laboratorio)
+
+- `LOCALIZE`: criterio real de convergencia de la MCL por spread de
+  `/particlecloud` (RMS xy + desviacion circular de yaw, modulo puro
+  `maze_mission/localization.py` con tests). No se navega hasta converger
+  (`localize_xy_std_max`, `localize_yaw_std_max`); si no converge en
+  `localize_timeout_s` se avisa re-fijar `/initialpose` y se sigue esperando.
+  Sin `/particlecloud` (harness fake_diff_drive) sigue como antes tras una
+  gracia corta. El reencuadre +90 del scan ya esta en maze_nav
+  (`scan_yaw_offset`, ver INTERFAZ_MAZE_NAV.md).
+- `SEARCH_CONE`: giro-scan de 360 en cada waypoint con `scan:=true`
+  (`scan_turn_steps` goals rotados en el mismo (x,y); el robot rota continuo,
+  la camara barre la vuelta completa). Waypoints REALES sobre
+  `maps/maze_slam.yaml` generados por `scripts/gen_search_waypoints.py`
+  (farthest-point sampling geodesico, cobertura <= 1.5 m, todos validados
+  contra el mapa inflado); regenerar con `--start X Y` si el arranque real
+  difiere. Ademas: se saltea el waypoint si el navigator lo declara
+  inalcanzable (PLANNING->IDLE) o por timeout, y al volver a SEARCH desde el
+  pipeline del cono se resetea el estado de busqueda (antes un REACHED del
+  goal del cono podia avanzar la ruta de waypoints).
+
 ## Pendiente / real-only
 
-- `LOCALIZE`: hoy pasa con pose disponible; el criterio real de convergencia de la
-  MCL (varianza de `/particlecloud`) queda para el robot real. Ademas la MCL
-  necesita el reencuadre +90 del scan (ver INTERFAZ_MAZE_NAV.md).
-- `SEARCH_CONE`: recorre waypoints; falta el giro-scan en cada uno (para el cono en
-  lugar desconocido) y waypoints reales sobre el mapa del laberinto (hoy placeholder).
 - Fallback de servoing bearing-only si el LIDAR no da rango (hoy vuelve a SEARCH).
 - C6: percepcion real (M1 ya calibrada) + MCL real, en el robot fisico.

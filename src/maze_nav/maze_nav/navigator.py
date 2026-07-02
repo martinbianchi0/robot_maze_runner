@@ -55,6 +55,11 @@ class Navigator(Node):
         self.declare_parameter('safety_stop', 0.22)    # m, freno de emergencia
         self.declare_parameter('control_rate', 20.0)
         self.declare_parameter('scan_topic', '/scan')
+        # Montaje del LIDAR respecto a base: offset lineal (TB3 burger: base_scan
+        # 3.2 cm atras; TB4 real: -0.04) y angular (TB3 sim: 0; TB4 real: el
+        # RPLIDAR esta a +90 deg -> +pi/2). Ver INTERFAZ_MAZE_NAV.md.
+        self.declare_parameter('scan_x_offset', -0.032)
+        self.declare_parameter('scan_yaw_offset', 0.0)
 
         self.robot_radius = float(self.get_parameter('robot_radius').value)
         self.inflation = float(self.get_parameter('inflation').value)
@@ -64,6 +69,8 @@ class Navigator(Node):
         self.goal_tol = float(self.get_parameter('goal_tol').value)
         self.yaw_tol = float(self.get_parameter('yaw_tol').value)
         self.safety_stop = float(self.get_parameter('safety_stop').value)
+        self.scan_dx = float(self.get_parameter('scan_x_offset').value)
+        self.scan_dyaw = float(self.get_parameter('scan_yaw_offset').value)
 
         self.map = None                 # dict con occ,res,origin,H,W
         self.cost = None                # EDT (m) a obstaculo, para penalizar cercania
@@ -234,7 +241,8 @@ class Navigator(Node):
             return None
         r = np.asarray(self.scan.ranges, dtype=np.float32)
         ang = self.scan.angle_min + np.arange(len(r)) * self.scan.angle_increment
-        front = np.abs(wrap_angle_vec(ang)) < 0.5   # +/- ~30 grados
+        # "frente" en frame base = angulo del scan + montaje del LIDAR
+        front = np.abs(wrap_angle_vec(ang + self.scan_dyaw)) < 0.5   # +/- ~30 grados
         rr = r[front]
         rr = rr[np.isfinite(rr) & (rr > self.scan.range_min)]
         return float(rr.min()) if len(rr) else None
@@ -253,12 +261,12 @@ class Navigator(Node):
         ok = np.isfinite(r) & (r > self.scan.range_min) & (r < 2.0)
         r, ang = r[ok], ang[ok]
         px, py, pth = self.pose
-        # Aplicar el offset base_scan -> base_footprint del TB3 burger (-3.2cm x).
+        # Aplicar el montaje del LIDAR: offset lineal + angular (params).
         c, s = math.cos(pth), math.sin(pth)
-        sx = px + c * -0.032
-        sy = py + s * -0.032
-        ex = sx + r * np.cos(pth + ang)
-        ey = sy + r * np.sin(pth + ang)
+        sx = px + c * self.scan_dx
+        sy = py + s * self.scan_dx
+        ex = sx + r * np.cos(pth + self.scan_dyaw + ang)
+        ey = sy + r * np.sin(pth + self.scan_dyaw + ang)
         res, origin = self.map['res'], self.map['origin']
         H, W = self.map['H'], self.map['W']
         occ = self.map['occ']

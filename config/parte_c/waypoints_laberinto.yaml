@@ -1,15 +1,22 @@
-# Waypoints de busqueda del cono sobre el mapa del laberinto (frame map, metros).
-#
-# PLACEHOLDER: los waypoints definitivos se definen sobre el mapa construido en
-# la etapa C3 (results/parte_c/mapa_laberinto/laberinto.yaml). Se eligen para
-# cubrir las zonas visibles del laberinto; el robot hace un giro-scan en cada
-# uno para maximizar la chance de ver el unico cono (que esta en un lugar
-# desconocido). NO es exploracion de fronteras.
-#
-# Formato por waypoint: x, y (obligatorios), yaw (rad, opcional), scan (bool,
-# opcional; si hacer giro-scan al llegar).
-
+# Waypoints de busqueda del cono sobre el mapa del laberinto (frame map, m).
+# GENERADO por scripts/gen_search_waypoints.py sobre maps/maze_slam.yaml
+#   start=(2.45, -2.0)  coverage=1.5 m  inflacion=0.26 m
+# Cobertura: toda celda libre alcanzable queda a <= 1.50 m
+# (geodesicos) de un waypoint; todos caen en celda libre del mapa inflado.
+# La mision hace giro-scan de 360 en cada uno (scan_turn_steps).
+# Regenerar en el laboratorio si la pose de arranque real difiere:
+#   python3 scripts/gen_search_waypoints.py --start X Y
 waypoints:
-  - {x: 0.0, y: 0.0, yaw: 0.0, scan: true}
-  - {x: 1.0, y: 0.0, yaw: 0.0, scan: true}
-  - {x: 1.0, y: 1.0, yaw: 1.57, scan: true}
+- {x: 1.21, y: -2.9, yaw: -2.51, scan: true}
+- {x: 0.88, y: -1.4, yaw: 1.79, scan: true}
+- {x: 0.49, y: -2.57, yaw: -1.89, scan: true}
+- {x: -1.07, y: -1.52, yaw: 2.55, scan: true}
+- {x: 0.02, y: -0.02, yaw: 0.95, scan: true}
+- {x: 2.05, y: -0.56, yaw: -0.26, scan: true}
+- {x: 3.46, y: -1.07, yaw: -0.35, scan: true}
+- {x: 4.28, y: -1.33, yaw: -0.32, scan: true}
+- {x: 3.07, y: -2.36, yaw: -2.44, scan: true}
+- {x: 3.79, y: -3.83, yaw: -1.12, scan: true}
+- {x: 5.29, y: -3.08, yaw: 0.46, scan: true}
+- {x: 5.83, y: -1.91, yaw: 1.14, scan: true}
+- {x: 5.74, y: -3.98, yaw: -1.61, scan: true}
