@@ -90,7 +90,16 @@ Fix (porteo Parte A/B a real): sumar `scan_yaw_offset` (+pi/2 real, 0 sim) al
 angulo del rayo y usar -0.04 de offset. Cambio chico y retrocompatible en
 `maze_nav` (default 0 = comportamiento actual), a COORDINAR con el equipo.
 Alternativa sin tocar maze_nav: un shim que republica el scan con
-`angle_min += pi/2`. C3 (validar MCL sobre el bag real) depende de esto.
+`angle_min += pi/2` (`scripts/scan_reframe.py`).
+
+**C3 validado (consistencia scan<->odom):** `scripts/scan_match_validate.py`
+localiza globalmente el primer scan del bag y dead-reckona con odom sobre ~1.8 m.
+Con offset **+90 el match scan<->mapa se mantiene en ~0.99**; con 0 (medio 0.79) y
+-90 (medio 0.56) diverge a medida que el robot se traslada. Confirma que **+90 es
+el offset correcto** y que la MCL localizara con el scan reencuadrado (consistente
+con C1: base = scan + 90 deg). Evidencia:
+`results/parte_c/C3/scan_odom_consistency.png`. Para el robot real (C6): usar el
+shim, o agregar `scan_yaw_offset=+pi/2` al localizer (coordinar con el equipo).
 
 ## Dependencia abierta a confirmar con el equipo
 
