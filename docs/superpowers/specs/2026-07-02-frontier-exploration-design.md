@@ -133,10 +133,17 @@ def inflate_occupancy(grid, radius_cells, *, unknown_as_obstacle=True, lethal_th
     # default True = comportamiento actual (validación del goal del cono no cambia)
 ```
 
-Nota de diseño: con fronteras, el goal SIEMPRE cae en celda conocida-libre (el borde), así
-que no hace falta "planificar a través de lo desconocido". Vas al borde → el mapa crece →
-aparece el borde siguiente. El único cambio real en `occupancy.py` es el flag para no
-colapsar los dos criterios. `is_cell_free` ya tiene `allow_unknown`; se mantiene.
+Nota de diseño (corregida tras la review de integración): el goal NO es la celda-frontera
+misma. Una celda-frontera linda con lo desconocido, y tanto la validación de la misión como
+el navigator inflan el desconocido (`unknown_as_obstacle=True`, ~inflation_radius): la celda
+del borde queda letal y sería rechazada / no navegable. Por eso `select_frontier_goal`:
+(1) calcula costo/alcanzabilidad sobre la grilla totalmente inflada (paredes Y desconocido,
+mismo criterio que el navigator); (2) por cada cluster, RETROCEDE del borde a la celda
+navegable más cercana y alcanzable (`nearest_free_cell` sobre el inflado), que queda a
+~inflation_radius del desconocido — un punto de observación seguro desde el cual el LIDAR
+revela lo no visto y el mapa crece. El goal es entonces navegable de punta a punta
+(módulo → misión → navigator). El flag `unknown_as_obstacle=False` de `occupancy.py` queda
+para otros usos, no para el costo de exploración. `is_cell_free` ya tiene `allow_unknown`.
 
 ### Cambio en `mission_node.py` (estado `SEARCH_CONE`)
 
