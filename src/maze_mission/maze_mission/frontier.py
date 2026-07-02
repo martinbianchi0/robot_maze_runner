@@ -35,7 +35,7 @@ def find_frontier_cells(grid, lethal=50):
 
 @dataclass(frozen=True)
 class FrontierCluster:
-    cells: tuple           # tupla de (gx, gy)
+    cells: tuple[tuple[int, int], ...]   # tupla de (gx, gy)
     size: int
     centroid_gx: int
     centroid_gy: int
