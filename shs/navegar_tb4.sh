@@ -45,17 +45,20 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Elegir mapa: arg > el mas reciente laberinto_lab_* > maze_slam > casa_slam.
+# Elegir mapa del laberinto. Orden: --map > el mas reciente laberinto_lab_* >
+# maze_slam.yaml. NO caemos a casa_slam.yaml: este script es solo para el
+# laberinto real; si no hay un mapa de laberinto, abortamos.
 if [[ -z "$MAP" ]]; then
     MAP="$(ls -1t "$WS_DIR/maps/laberinto_lab_"*.yaml 2>/dev/null | head -1 || true)"
 fi
-if [[ -z "$MAP" ]]; then
-    for cand in maze_slam laberinto_slam casa_slam; do
-        if [[ -f "$WS_DIR/maps/$cand.yaml" ]]; then MAP="$WS_DIR/maps/$cand.yaml"; break; fi
-    done
+if [[ -z "$MAP" ]] && [[ -f "$WS_DIR/maps/maze_slam.yaml" ]]; then
+    MAP="$WS_DIR/maps/maze_slam.yaml"
 fi
 if [[ -z "$MAP" ]]; then
-    echo "ERROR: no encuentro mapa. Usa --map /ruta.yaml (o mapea antes con mapear_tb4.sh)." >&2
+    echo "ERROR: no encuentro un mapa del laberinto." >&2
+    echo "  Opciones:" >&2
+    echo "    - Mapear en el turno: ./shs/mapear_tb4.sh --ns $NS + ./shs/save_map.sh" >&2
+    echo "    - Pasar uno explicito: ./shs/navegar_tb4.sh --map /ruta.yaml --ns $NS" >&2
     exit 1
 fi
 

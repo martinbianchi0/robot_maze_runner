@@ -62,6 +62,10 @@ class FastSLAMNode(Node):
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('publish_rate', 4.0)
         self.declare_parameter('maps_dir', 'maps')
+        # Basename por defecto del mapa cuando se llama /maze_slam/save_request
+        # sin nombre. En slam.launch.py (casa) queda 'casa_slam'; en
+        # slam_tb4_live.launch.py (laberinto real) se pisa a 'maze_slam'.
+        self.declare_parameter('save_basename', 'casa_slam')
         self.declare_parameter('seed', 42)
         # Disparar update de SLAM solo tras movimiento significativo (evita meter
         # ruido del modelo de movimiento a 20 Hz -> deriva rotacional).
@@ -138,7 +142,7 @@ class FastSLAMNode(Node):
         # para guardar en maps/<basename>.{pgm,yaml} y no pisar otros mapas.
         self.create_subscription(String, '/maze_slam/save_request_named',
                                  self.on_save_named, 10)
-        self.save_basename = 'casa_slam'
+        self.save_basename = str(self.get_parameter('save_basename').value)
 
         self.pub_map = self.create_publisher(OccupancyGrid, '/map', 1)
         self.pub_belief = self.create_publisher(PoseStamped, '/belief', 10)
@@ -232,7 +236,9 @@ class FastSLAMNode(Node):
         self.save_map()
 
     def on_save_named(self, msg):
-        name = msg.data.strip() or 'casa_slam'
+        # Si el mensaje viene vacio, usamos el basename del parametro (no un
+        # 'casa_slam' hardcodeado que pisaba el mapa del laberinto).
+        name = msg.data.strip() or self.save_basename
         # sanitizar: solo basename, sin path traversal ni extension
         name = os.path.basename(name).removesuffix('.pgm').removesuffix('.yaml')
         self.save_basename = name

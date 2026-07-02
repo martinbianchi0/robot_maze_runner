@@ -53,6 +53,8 @@ def generate_launch_description():
                 'odom_frame': 'odom',
                 'publish_rate': 4.0,
                 'maps_dir': 'maps',
+                # save_map.sh sin argumento cae aca (en vez de casa_slam):
+                'save_basename': 'maze_slam',
                 # Montaje del LIDAR del TB4 (rplidar_link a -4 cm en X, +90 deg yaw).
                 'sensor_x': -0.04,
                 'sensor_y': 0.0,
