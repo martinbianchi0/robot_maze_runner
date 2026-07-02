@@ -1,6 +1,7 @@
 import numpy as np
 
-from maze_mission.frontier import find_frontier_cells, cluster_frontiers, path_cost_field
+from maze_mission.frontier import find_frontier_cells, cluster_frontiers, path_cost_field, select_frontier_goal
+from maze_mission.occupancy import GridSpec
 
 
 def test_borde_libre_desconocido_es_frontera():
@@ -71,3 +72,38 @@ def test_frontera_amurallada_inalcanzable():
     grid[1:4, 3] = 100           # celda (2,2) encerrada por paredes
     dist = path_cost_field(grid, (0, 0), lethal=50)
     assert dist[2, 2] == -1      # inalcanzable
+
+
+def _spec():
+    return GridSpec(resolution=1.0, origin_x=0.0, origin_y=0.0)
+
+
+def test_sin_fronteras_devuelve_none():
+    grid = np.zeros((5, 5), dtype=np.int16)   # todo conocido-libre
+    out = select_frontier_goal(grid, _spec(), (0.0, 0.0),
+                               inflation_cells=0, min_frontier_cells=1, alpha=0.1)
+    assert out is None
+
+
+def test_elige_frontera_por_utilidad():
+    # dos frentes: uno chico y cercano, uno grande y lejano.
+    grid = np.zeros((9, 9), dtype=np.int16)
+    grid[:, 8] = -1              # columna desconocida a la derecha (frente grande, lejano)
+    grid[0, 0] = -1             # una celda desconocida arriba-izq (frente chico, cercano)
+    # con alpha alto (costo domina) elige el cercano; con alpha bajo (ganancia domina) el grande
+    cerca = select_frontier_goal(grid, _spec(), (1.0, 1.0),
+                                 inflation_cells=0, min_frontier_cells=1, alpha=10.0)
+    lejos = select_frontier_goal(grid, _spec(), (1.0, 1.0),
+                                 inflation_cells=0, min_frontier_cells=1, alpha=0.01)
+    assert cerca is not None and lejos is not None
+    # el frente grande esta en x~7 (col 7 libre lindante con col 8 desconocida)
+    assert lejos.x > cerca.x
+
+
+def test_goal_en_mundo_dentro_de_bounds():
+    grid = np.zeros((5, 5), dtype=np.int16)
+    grid[:, 4] = -1
+    out = select_frontier_goal(grid, _spec(), (0.0, 0.0),
+                               inflation_cells=0, min_frontier_cells=1, alpha=0.1)
+    assert out is not None
+    assert 0.0 <= out.x <= 5.0 and 0.0 <= out.y <= 5.0

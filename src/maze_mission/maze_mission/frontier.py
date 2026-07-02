@@ -8,6 +8,7 @@ Reemplaza la busqueda por waypoints fijos. Fundamento: teoricas 20 (fronteras) y
 """
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass
 
@@ -80,3 +81,47 @@ def path_cost_field(inflated_grid, start_cell, lethal=50):
                     dist[ny, nx] = d + 1
                     queue.append((nx, ny))
     return dist
+
+
+@dataclass(frozen=True)
+class FrontierGoal:
+    x: float
+    y: float
+    yaw: float
+    utility: float
+    cost: float
+    gain: float
+
+
+def select_frontier_goal(grid, spec, robot_xy, *, lethal=50,
+                         inflation_cells, min_frontier_cells, alpha):
+    grid = np.asarray(grid)
+    frontier_mask = find_frontier_cells(grid, lethal)
+    clusters = cluster_frontiers(frontier_mask, min_frontier_cells)
+    if not clusters:
+        return None
+
+    inflated = inflate_occupancy(grid, inflation_cells,
+                                 unknown_as_obstacle=True, lethal_threshold=lethal)
+    start = world_to_grid(robot_xy[0], robot_xy[1], spec)
+    start = nearest_free_cell(inflated, start, lethal_threshold=lethal) or start
+    dist = path_cost_field(inflated, start, lethal)
+
+    best = None
+    for cluster in clusters:
+        reachable = [(int(dist[gy, gx]), gx, gy)
+                     for (gx, gy) in cluster.cells if dist[gy, gx] >= 0]
+        if not reachable:
+            continue
+        cost, gx, gy = min(reachable)
+        gain = float(cluster.size)
+        utility = gain - alpha * cost
+        if best is None or utility > best[0]:
+            best = (utility, gx, gy, float(cost), gain)
+
+    if best is None:
+        return None
+    utility, gx, gy, cost, gain = best
+    x, y = grid_to_world(gx, gy, spec)
+    yaw = math.atan2(y - robot_xy[1], x - robot_xy[0])
+    return FrontierGoal(x=x, y=y, yaw=yaw, utility=utility, cost=cost, gain=gain)
