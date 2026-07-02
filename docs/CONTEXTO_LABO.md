@@ -131,6 +131,33 @@ hicieron pero **NO se probaron end-to-end** — nos fuimos antes. Falta verifica
 - El daemon de ROS queda stale al cambiar de `turtlebot_mode`; si `ros2 topic
   list` miente, `ros2 daemon stop && ros2 daemon start`.
 
+## 4.5. Shortcuts A y B (tb4_0 / tb4_1 seamless)
+
+Para las partes A (mapeo) y B (nav) sobre el TB4 real, sin escribir launch a mano:
+
+```bash
+export ROS_DOMAIN_ID=<el-que-usa-el-TB4>
+
+# Parte A live: FastSLAM del laberinto real. Manejar por teleop.
+./shs/mapear_tb4.sh --ns tb4_1
+# Cuando el mapa este lindo, en otra terminal:
+./shs/save_map.sh laberinto_lab_$(date +%Y%m%d)
+
+# Parte B live: nav sobre el mapa recien hecho.
+./shs/navegar_tb4.sh --ns tb4_1                # agarra el .yaml mas reciente
+./shs/navegar_tb4.sh --ns tb4_1 --map maps/otro.yaml --v-max 0.10
+```
+
+Cambiar de robot es cambiar `--ns tb4_0` <-> `--ns tb4_1` (default tb4_0). Ambos
+scripts:
+- Corren `kill_all.sh` primero (evita nodos zombies).
+- Chequean con `tb4_precheck` que el TB4 este publicando `/<ns>/scan` y
+  `/<ns>/odom` antes de arrancar. Aborta con instrucciones si no ve nada
+  (ROS_DOMAIN_ID, red, ns equivocada).
+- Levantan RViz con `/tf` y `/tf_static` remapeados a `/<ns>/*` (igual que la
+  launch, si no RViz dropea el scan).
+- `navegar_tb4.sh` publica `cmd_vel=0` en el trap EXIT (Ctrl+C deja al TB4 quieto).
+
 ## 5. Cómo relanzar Parte C (tb4_0)
 
 ```bash

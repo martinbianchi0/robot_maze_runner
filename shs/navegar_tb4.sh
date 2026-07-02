@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Parte B live sobre el TB4 REAL: mapa + MCL + navigator + RViz. El robot se
+# localiza en un mapa hecho antes (con ./shs/mapear_tb4.sh + save_map) y
+# navega a la goal que le pases con la herramienta "2D Goal Pose".
+#
+# Uso:
+#   ./shs/navegar_tb4.sh                                  # ns=tb4_0, mapa auto
+#   ./shs/navegar_tb4.sh --ns tb4_1                       # el TB4 del lab
+#   ./shs/navegar_tb4.sh --ns tb4_1 --map /ruta.yaml
+#   ./shs/navegar_tb4.sh --ns tb4_1 --v-max 0.10          # mas lento
+#
+# Antes de correr:
+#   1) TB4 encendido y booteado.
+#   2) export ROS_DOMAIN_ID=<X>   (el mismo que usa el TB4).
+#   3) Tener un mapa (default: maps/laberinto_lab_*.yaml o maps/maze_slam.yaml).
+#
+# En RViz:
+#   - "2D Pose Estimate" en la pose real del robot (con orientacion aproximada).
+#   - Chequear que el LaserScan se pega a las paredes.
+#   - "2D Goal Pose" al objetivo.
+set -e
+source "$(dirname "$0")/_common.sh"
+source "$(dirname "$0")/_tb4_common.sh"
+cd "$WS_DIR"
+
+bash "$WS_DIR/shs/kill_all.sh"
+sleep 0.5
+
+"$WS_DIR/shs/build.sh"
+source "$INSTALL_BASE/local_setup.bash"
+
+NS="tb4_0"
+WITH_RVIZ=1
+MAP=""
+VMAX="0.12"
+WMAX="0.8"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --ns)       NS="$2"; shift 2 ;;
+        --no-rviz)  WITH_RVIZ=0; shift ;;
+        --map)      MAP="$2"; shift 2 ;;
+        --v-max)    VMAX="$2"; shift 2 ;;
+        --w-max)    WMAX="$2"; shift 2 ;;
+        *)          echo "arg desconocido: $1" >&2; shift ;;
+    esac
+done
+
+# Elegir mapa: arg > el mas reciente laberinto_lab_* > maze_slam > casa_slam.
+if [[ -z "$MAP" ]]; then
+    MAP="$(ls -1t "$WS_DIR/maps/laberinto_lab_"*.yaml 2>/dev/null | head -1 || true)"
+fi
+if [[ -z "$MAP" ]]; then
+    for cand in maze_slam laberinto_slam casa_slam; do
+        if [[ -f "$WS_DIR/maps/$cand.yaml" ]]; then MAP="$WS_DIR/maps/$cand.yaml"; break; fi
+    done
+fi
+if [[ -z "$MAP" ]]; then
+    echo "ERROR: no encuentro mapa. Usa --map /ruta.yaml (o mapea antes con mapear_tb4.sh)." >&2
+    exit 1
+fi
+
+tb4_precheck "$NS" "/$NS/scan" "/$NS/odom"
+
+echo "Navegar TB4: ns=$NS mapa=$MAP v_max=$VMAX w_max=$WMAX"
+
+cleanup() {
+    [[ -n "${RVIZ_PID:-}" ]] && kill "$RVIZ_PID" 2>/dev/null || true
+    [[ -n "${STACK_PID:-}" ]] && kill "$STACK_PID" 2>/dev/null || true
+    # Salvavidas: parar el robot al morir el script.
+    tb4_stop_cmd_vel "$NS"
+}
+trap cleanup EXIT INT TERM
+
+if [[ "$WITH_RVIZ" -eq 1 ]]; then
+    RVIZ_CFG="$WS_DIR/src/maze_nav/rviz/nav.rviz"
+    rviz2 -d "$RVIZ_CFG" \
+        --ros-args -p use_sim_time:=false \
+        -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" &
+    RVIZ_PID=$!
+fi
+
+ros2 launch maze_nav nav_tb4_live.launch.py \
+    map_yaml:="$MAP" ns:="$NS" v_max:="$VMAX" w_max:="$WMAX" &
+STACK_PID=$!
+
+wait -n
