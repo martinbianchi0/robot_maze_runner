@@ -44,11 +44,14 @@ class MissionConfig:
     detection_confidence_min: float = 0.4
     detection_stable_frames: int = 3
     verify_area_px_min: int = 1500          # area para confirmar cono cercano
+    cone_standoff_m: float = 0.30           # frenar a esta distancia del cono
+    max_replans: int = 2                    # reintentos antes de FAILURE por cono
     # Tiempos (s).
     control_hz: float = 5.0
     localize_timeout_s: float = 30.0
     goal_timeout_s: float = 30.0
     blocked_timeout_s: float = 6.0
+    verify_timeout_s: float = 5.0
 
     @classmethod
     def from_dict(cls, values: dict) -> 'MissionConfig':
