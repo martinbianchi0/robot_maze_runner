@@ -6,9 +6,11 @@
 #   source $HOME/miniforge3/etc/profile.d/conda.sh && conda activate rosenv
 #   export TURTLEBOT3_MODEL=burger
 #   ./scripts/smoke_explore.sh
-set -euo pipefail
+# nounset (-u) desactivado a proposito: los setup.zsh de colcon/ROS referencian
+# variables sin definir (COLCON_TRACE, etc.) y romperian bajo set -u.
+set -eo pipefail
 cd "$(dirname "$0")/.."
-source install/setup.zsh
+source install/setup.bash
 
 DURATION="${1:-60}"
 
