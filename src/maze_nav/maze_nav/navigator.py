@@ -62,6 +62,8 @@ class Navigator(Node):
         self.declare_parameter('recovery_backoff_speed', -0.05)
         self.declare_parameter('front_blocked_confirmations', 2)
         self.declare_parameter('front_obstacle_mark_radius', 0.12)
+        self.declare_parameter('clearance_extra_m', 0.25)
+        self.declare_parameter('clearance_weight', 3.0)
         # Montaje del LIDAR respecto a base: offset lineal (TB3 burger: base_scan
         # 3.2 cm atras; TB4 real: -0.04) y angular (TB3 sim: 0; TB4 real: el
         # RPLIDAR esta a +90 deg -> +pi/2). Ver INTERFAZ_MAZE_NAV.md.
@@ -86,6 +88,8 @@ class Navigator(Node):
             self.get_parameter('front_blocked_confirmations').value)
         self.front_obstacle_mark_radius = float(
             self.get_parameter('front_obstacle_mark_radius').value)
+        self.clearance_extra_m = float(self.get_parameter('clearance_extra_m').value)
+        self.clearance_weight = float(self.get_parameter('clearance_weight').value)
 
         self.map = None                 # dict con occ,res,origin,H,W
         self.cost = None                # EDT (m) a obstaculo, para penalizar cercania
@@ -231,8 +235,8 @@ class Navigator(Node):
                 if not (0 <= nx < W and 0 <= ny < H) or blocked[ny, nx]:
                     continue
                 # empujar hacia zonas despejadas: penalizar proximidad a obstaculos
-                prox = max(0.0, clear + 0.25 - cost[ny, nx])
-                ng = gc + step + prox * 3.0
+                prox = max(0.0, clear + self.clearance_extra_m - cost[ny, nx])
+                ng = gc + step + prox * self.clearance_weight
                 if ng < gscore.get((nx, ny), 1e18):
                     gscore[(nx, ny)] = ng
                     came[(nx, ny)] = cur
@@ -580,6 +584,8 @@ class Navigator(Node):
             'cmd': {'linear_x': self.last_cmd[0], 'angular_z': self.last_cmd[1]},
             'robot_radius_m': float(self.robot_radius),
             'inflation_m': float(self.inflation),
+            'clearance_extra_m': float(self.clearance_extra_m),
+            'clearance_weight': float(self.clearance_weight),
         }
         if self.pose is not None:
             payload['pose'] = {
