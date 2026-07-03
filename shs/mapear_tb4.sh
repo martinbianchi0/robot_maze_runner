@@ -76,10 +76,19 @@ if [[ "$WITH_RVIZ" -eq 1 ]]; then
     # RViz es un nodo ROS: los remaps con -r se aplican a las suscripciones
     # reales. Asi los displays configurados como '/scan', '/tf', '/tf_static'
     # se conectan al bus namespaced del TB4 sin tocar el .rviz.
+    #
+    # En modo --bag el bag.sh remapea /tb4_0/tf_static al bus GLOBAL /tf_static,
+    # asi que NO remapeamos tf_static (RViz lo lee del default). El dinamico
+    # /tb4_0/tf queda sin remapear en el bag -> remapeamos /tf:=/<ns>/tf.
+    # En modo real (robot fisico) el driver publica ambos namespaced.
+    if [[ "$USE_SIM" == "true" ]]; then
+        RVIZ_REMAPS=(-r /tf:="/$NS/tf" -r /scan:="/$NS/scan")
+    else
+        RVIZ_REMAPS=(-r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" -r /scan:="/$NS/scan")
+    fi
     rviz2 -d "$RVIZ_CFG" \
         --ros-args -p use_sim_time:="$USE_SIM" \
-        -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" \
-        -r /scan:="/$NS/scan" &
+        "${RVIZ_REMAPS[@]}" &
     RVIZ_PID=$!
 fi
 
