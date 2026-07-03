@@ -32,7 +32,8 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import ColorRGBA, String
+from visualization_msgs.msg import Marker, MarkerArray
 
 from maze_perception.detections import ConeDetections
 from maze_mission.cone_goal_estimator import cone_world_from_lidar
@@ -119,6 +120,11 @@ class MissionNode(Node):
 
         self.goal_pub = self.create_publisher(PoseStamped, self.cfg.goal_pose_topic, 10)
         self.state_pub = self.create_publisher(String, self.cfg.mission_state_topic, 10)
+        # Visualizacion en RViz: cono estimado en /map + ruta de waypoints.
+        # Sin esto el operador en el lab no ve donde el mission cree que esta el
+        # cono ni por donde piensa patrullar, aunque el goal_pose se emita bien.
+        self.cone_marker_pub = self.create_publisher(Marker, '/mission/cone_marker', 10)
+        self.waypoints_pub = self.create_publisher(MarkerArray, '/mission/waypoints', 10)
 
         self.create_subscription(OccupancyGrid, self.cfg.map_topic, self._on_map, latched)
         self.create_subscription(String, self.cfg.detections_topic, self._on_detections, 10)
@@ -294,6 +300,14 @@ class MissionNode(Node):
     # -- maquina de estados --------------------------------------------------
     def _on_timer(self):
         self.state_pub.publish(String(data=self.state.value))
+        # Refresco de waypoints a la mitad del rate del control loop (barato).
+        # Con lifetime.sec=10 en los markers, con 1 pub por segundo alcanza para
+        # que RViz los mantenga vivos y actualice el color del actual.
+        if not hasattr(self, '_wp_pub_count'):
+            self._wp_pub_count = 0
+        if self._wp_pub_count % max(1, int(self.cfg.control_hz)) == 0:
+            self._publish_waypoints_markers()
+        self._wp_pub_count += 1
         handler = getattr(self, f'_state_{self.state.name.lower()}', None)
         if handler is not None:
             handler()
@@ -402,6 +416,7 @@ class MissionNode(Node):
             self._to_search()
             return
         self.cone_goal = (est[0], est[1])
+        self._publish_cone_marker(est[0], est[1])
         self._to(MissionState.PLAN_TO_CONE)
 
     def _state_plan_to_cone(self):
@@ -461,6 +476,73 @@ class MissionNode(Node):
 
     def _state_failure(self):
         self._note('MISION FALLIDA: aborto seguro (no se emiten mas goals)')
+
+    # -- visualizacion RViz --------------------------------------------------
+    def _publish_cone_marker(self, x, y):
+        """Cilindro rojo en /map donde el mission estima el cono."""
+        m = Marker()
+        m.header.frame_id = self.cfg.map_frame
+        m.header.stamp = self.get_clock().now().to_msg()
+        m.ns = 'mission_cone'
+        m.id = 0
+        m.type = Marker.CYLINDER
+        m.action = Marker.ADD
+        m.pose.position.x = float(x)
+        m.pose.position.y = float(y)
+        m.pose.position.z = 0.15
+        m.pose.orientation.w = 1.0
+        m.scale.x = m.scale.y = 0.18
+        m.scale.z = 0.30
+        m.color = ColorRGBA(r=1.0, g=0.15, b=0.15, a=0.9)
+        m.lifetime.sec = 10
+        self.cone_marker_pub.publish(m)
+
+    def _publish_waypoints_markers(self):
+        """Cadena de esferas + linea uniendo los waypoints del patrol."""
+        arr = MarkerArray()
+        if not self.route.waypoints:
+            self.waypoints_pub.publish(arr)
+            return
+        stamp = self.get_clock().now().to_msg()
+        # Esferas: waypoints, coloreadas segun estado (pending / current / done).
+        for i, wp in enumerate(self.route.waypoints):
+            m = Marker()
+            m.header.frame_id = self.cfg.map_frame
+            m.header.stamp = stamp
+            m.ns = 'mission_waypoints'
+            m.id = i
+            m.type = Marker.SPHERE
+            m.action = Marker.ADD
+            m.pose.position.x = float(wp.x)
+            m.pose.position.y = float(wp.y)
+            m.pose.position.z = 0.05
+            m.pose.orientation.w = 1.0
+            m.scale.x = m.scale.y = m.scale.z = 0.15
+            cur = self.route.current_index()
+            if i == cur:
+                m.color = ColorRGBA(r=0.9, g=0.9, b=0.1, a=0.9)   # amarillo
+            elif i < cur:
+                m.color = ColorRGBA(r=0.1, g=0.7, b=0.1, a=0.6)   # verde tenue
+            else:
+                m.color = ColorRGBA(r=0.1, g=0.4, b=0.9, a=0.8)   # azul
+            arr.markers.append(m)
+        # Linea uniendo la ruta.
+        line = Marker()
+        line.header.frame_id = self.cfg.map_frame
+        line.header.stamp = stamp
+        line.ns = 'mission_waypoints'
+        line.id = 10000
+        line.type = Marker.LINE_STRIP
+        line.action = Marker.ADD
+        line.pose.orientation.w = 1.0
+        line.scale.x = 0.04
+        line.color = ColorRGBA(r=0.3, g=0.5, b=1.0, a=0.5)
+        from geometry_msgs.msg import Point
+        for wp in self.route.waypoints:
+            p = Point(); p.x = float(wp.x); p.y = float(wp.y); p.z = 0.03
+            line.points.append(p)
+        arr.markers.append(line)
+        self.waypoints_pub.publish(arr)
 
 
 def main(args=None):

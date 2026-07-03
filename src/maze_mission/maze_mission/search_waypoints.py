@@ -47,6 +47,14 @@ class WaypointRoute:
     def exhausted(self) -> bool:
         return self._index >= len(self._waypoints)
 
+    @property
+    def waypoints(self) -> List[Waypoint]:
+        """Copia (superficial) de la ruta para consumo read-only (RViz markers)."""
+        return list(self._waypoints)
+
+    def current_index(self) -> int:
+        return self._index
+
 
 def scan_turn_yaws(base_yaw: float, steps: int) -> List[float]:
     """Yaws sucesivos del giro-scan de 360 deg en un waypoint.
