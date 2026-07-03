@@ -96,9 +96,13 @@ trap cleanup EXIT INT TERM
 
 if [[ "$WITH_RVIZ" -eq 1 ]]; then
     RVIZ_CFG="$WS_DIR/src/maze_nav/rviz/nav.rviz"
+    # RViz es un nodo ROS: los remaps con -r se aplican a las suscripciones
+    # reales. Asi los displays configurados como '/scan', '/tf', '/tf_static'
+    # se conectan al bus namespaced del TB4 sin tocar el .rviz.
     rviz2 -d "$RVIZ_CFG" \
         --ros-args -p use_sim_time:="$USE_SIM" \
-        -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" &
+        -r /tf:="/$NS/tf" -r /tf_static:="/$NS/tf_static" \
+        -r /scan:="/$NS/scan" &
     RVIZ_PID=$!
 fi
 
