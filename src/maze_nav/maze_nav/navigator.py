@@ -135,6 +135,14 @@ class Navigator(Node):
         res = msg.info.resolution
         origin = (msg.info.origin.position.x, msg.info.origin.position.y)
         occ = np.array(msg.data, dtype=np.int8).reshape(H, W)
+        # map_publisher republica el mapa cada 2s (fallback latched). Si el
+        # contenido no cambio, no rehacer el costmap: distance_transform_edt de
+        # 500x500 es caro y llenaba el log de "Costmap construido" cada 2s.
+        if (self.map is not None
+                and self.map['W'] == W and self.map['H'] == H
+                and self.map['origin'] == origin
+                and np.array_equal(self.map['occ'], occ)):
+            return
         self.map = {'occ': occ, 'res': res, 'origin': origin, 'H': H, 'W': W}
         self._build_costmap()
         self.get_logger().info(f'Costmap construido ({W}x{H} @ {res}m)')
