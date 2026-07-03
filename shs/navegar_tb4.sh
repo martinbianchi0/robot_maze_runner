@@ -30,12 +30,6 @@ source "$(dirname "$0")/_common.sh"
 source "$(dirname "$0")/_tb4_common.sh"
 cd "$WS_DIR"
 
-bash "$WS_DIR/shs/kill_all.sh"
-sleep 0.5
-
-"$WS_DIR/shs/build.sh"
-source "$INSTALL_BASE/local_setup.bash"
-
 NS="tb4_0"
 WITH_RVIZ=1
 MAP=""
@@ -53,6 +47,23 @@ while [[ $# -gt 0 ]]; do
         *)          echo "arg desconocido: $1" >&2; shift ;;
     esac
 done
+
+# Limpieza selectiva: en modo --bag NO matamos el 'ros2 bag play' del usuario
+# (kill_all lo mataba y despues el pre-flight fallaba porque no habia scan).
+if [[ "$USE_SIM" == "true" ]]; then
+    for pat in rviz2 fastslam_node map_publisher localizer navigator \
+               "ros2 launch" "ros2 run"; do
+        pkill -9 -f "$pat" 2>/dev/null || true
+    done
+    sleep 0.5
+    echo "Limpieza (preservando rosbag) ok."
+else
+    bash "$WS_DIR/shs/kill_all.sh"
+    sleep 0.5
+fi
+
+"$WS_DIR/shs/build.sh"
+source "$INSTALL_BASE/local_setup.bash"
 
 # Elegir mapa del laberinto. Orden: --map > el mas reciente laberinto_lab_* >
 # maze_slam.yaml. NO caemos a casa_slam.yaml: este script es solo para el

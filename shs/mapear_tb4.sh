@@ -28,13 +28,7 @@ source "$(dirname "$0")/_common.sh"
 source "$(dirname "$0")/_tb4_common.sh"
 cd "$WS_DIR"
 
-# Limpieza total antes de arrancar.
-bash "$WS_DIR/shs/kill_all.sh"
-sleep 0.5
-
-"$WS_DIR/shs/build.sh"
-source "$INSTALL_BASE/local_setup.bash"
-
+# Parsear args primero: en modo --bag NO matamos el 'ros2 bag play' del usuario.
 NS="tb4_0"
 WITH_RVIZ=1
 USE_SIM=false     # --bag lo pone en true (rosbag publica /clock)
@@ -46,6 +40,23 @@ while [[ $# -gt 0 ]]; do
         *)          echo "arg desconocido: $1" >&2; shift ;;
     esac
 done
+
+# Limpieza selectiva. Mata nodos y RViz, pero preserva el rosbag en --bag
+# (kill_all mata "ros2 bag play" -> mataba lo que abriste vos en la otra term).
+if [[ "$USE_SIM" == "true" ]]; then
+    for pat in rviz2 fastslam_node map_publisher localizer navigator \
+               "ros2 launch" "ros2 run"; do
+        pkill -9 -f "$pat" 2>/dev/null || true
+    done
+    sleep 0.5
+    echo "Limpieza (preservando rosbag) ok."
+else
+    bash "$WS_DIR/shs/kill_all.sh"
+    sleep 0.5
+fi
+
+"$WS_DIR/shs/build.sh"
+source "$INSTALL_BASE/local_setup.bash"
 
 tb4_precheck "$NS" "/$NS/scan" "/$NS/odom"
 
