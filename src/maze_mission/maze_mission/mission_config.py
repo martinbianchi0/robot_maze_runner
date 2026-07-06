@@ -59,6 +59,13 @@ class MissionConfig:
     verify_area_px_min: int = 1500          # area para confirmar cono cercano
     cone_standoff_m: float = 0.30           # frenar a esta distancia del cono
     max_replans: int = 2                    # reintentos antes de FAILURE por cono
+    # Fallback de servoing visual: cuando el LIDAR no da rango del cono (o lo
+    # ubica sobre una pared, p.ej. cono mas bajo que el plano del LIDAR), la
+    # mision avanza con micro-goals cortos sobre el bearing de la camara. Cada
+    # micro-goal se valida contra el mapa INFLADO (nunca cruza una pared), asi
+    # que ante un falso positivo tras pared el servoing se corta solo.
+    servo_step_m: float = 0.25              # largo de cada micro-goal hacia el cono
+    servo_max_steps: int = 8                # tope de micro-goals antes de rendirse
     # Tiempos (s).
     control_hz: float = 5.0
     localize_timeout_s: float = 30.0

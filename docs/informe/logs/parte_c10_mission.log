@@ -1,0 +1,10 @@
+[INFO] [1783371507.971594320] [mission_node]: mission_node iniciado. pose=/amcl_pose map=/map scan=/tb4_0/scan waypoints=16 lidar_offset=-90deg
+[INFO] [1783371544.906642518] [localizer]: Pose inicial fijada: (0.65, -0.24, 168deg)
+[INFO] [1783371554.342711759] [localizer]: Pose inicial fijada: (0.47, -0.26, -3deg)
+[INFO] [1783371554.704356035] [mission_node]: MCL convergida (std xy=0.07 m, yaw=0.10 rad)
+[INFO] [1783371556.206048596] [mission_node]: goal emitido (-1.58,0.73) [VALID]
+[INFO] [1783371589.454342885] [mission_node]: goal emitido (-0.74,-1.63) [VALID]
+[INFO] [1783371623.205122352] [mission_node]: cono en (-0.05,-0.57) sobre pared (LIDAR vio el fondo): paso a servoing visual
+[INFO] [1783371623.454532794] [mission_node]: goal emitido (-0.59,-1.37) [VALID]
+[INFO] [1783371623.704596203] [mission_node]: cono confirmado de cerca por servoing visual
+[INFO] [1783371623.954267263] [mission_node]: MISION COMPLETA: cono rojo alcanzado y verificado

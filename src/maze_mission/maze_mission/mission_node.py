@@ -36,7 +36,7 @@ from std_msgs.msg import ColorRGBA, String
 from visualization_msgs.msg import Marker, MarkerArray
 
 from maze_perception.detections import ConeDetections
-from maze_mission.cone_goal_estimator import cone_world_from_lidar
+from maze_mission.cone_goal_estimator import cone_world_from_lidar, micro_goal_along_bearing
 from maze_mission.goal_validator import GoalStatus, ValidatorConfig, validate_goal
 from maze_mission.localization import cloud_spread, is_converged
 from maze_mission.mission_config import MissionConfig
@@ -52,6 +52,7 @@ class MissionState(Enum):
     CONE_DETECTED = 'CONE_DETECTED'
     ESTIMATE_CONE_GOAL = 'ESTIMATE_CONE_GOAL'
     PLAN_TO_CONE = 'PLAN_TO_CONE'
+    SERVO_TO_CONE = 'SERVO_TO_CONE'
     NAVIGATE_TO_CONE = 'NAVIGATE_TO_CONE'
     AVOID_OBSTACLE = 'AVOID_OBSTACLE'
     REPLAN = 'REPLAN'
@@ -106,6 +107,9 @@ class MissionNode(Node):
         self.stable_count = 0
         self.cone_goal = None       # (x, y) estimado del cono
         self.replan_count = 0
+        self.servo_sent = False       # ya se emitio un micro-goal en el leg actual
+        self.servo_count = 0          # micro-goals emitidos en la sesion de servoing
+        self.servo_goal_time = None   # cuando se emitio el ultimo micro-goal
         self.wp_sent = False
         self.scan_yaws = []         # yaws pendientes del giro-scan en el wp actual
         self.nav_moving_seen = False  # nav tomo el ultimo goal (evita REACHED stale)
@@ -258,6 +262,14 @@ class MissionNode(Node):
         self.scan_yaws = []
         self.nav_moving_seen = False
         self._to(MissionState.SEARCH_CONE)
+
+    def _to_servo(self):
+        """Entrar a SERVO_TO_CONE reseteando el contador de micro-goals."""
+        self.servo_sent = False
+        self.servo_count = 0
+        self.servo_goal_time = None
+        self.nav_moving_seen = False
+        self._to(MissionState.SERVO_TO_CONE)
 
     def _current_cone(self):
         if self.last_detections is None:
@@ -412,8 +424,10 @@ class MissionNode(Node):
             return
         est = self._estimate_cone(self.chosen)
         if est is None:
-            self._note('sin rango LIDAR al cono (fallback servoing pendiente); sigo buscando')
-            self._to_search()
+            # El LIDAR no da rango del cono (p.ej. cono bajo el plano del LIDAR):
+            # la camara igual lo ve -> servoing visual sobre el bearing.
+            self._note('sin rango LIDAR al cono: paso a servoing visual')
+            self._to_servo()
             return
         self.cone_goal = (est[0], est[1])
         self._publish_cone_marker(est[0], est[1])
@@ -422,14 +436,70 @@ class MissionNode(Node):
     def _state_plan_to_cone(self):
         cx, cy = self.cone_goal
         if self._cone_on_obstacle(cx, cy):
-            self._note(f'cono en ({cx:.2f},{cy:.2f}) DETRAS DE PARED (obstaculo mapeado): rechazado')
-            self._to_search()
+            # El rango LIDAR ubico el cono sobre una pared: tipicamente el LIDAR
+            # golpeo la pared de atras porque el cono es mas bajo que su plano. No
+            # confiamos ese rango; la camara si ve el cono -> servoing visual.
+            self._note(f'cono en ({cx:.2f},{cy:.2f}) sobre pared (LIDAR vio el fondo): paso a servoing visual')
+            self._to_servo()
             return
         gx, gy = self._standoff((cx, cy))
         if self._emit_goal(gx, gy):
             self.replan_count = 0
             self._to(MissionState.NAVIGATE_TO_CONE)
         else:
+            self._to_search()
+
+    def _state_servo_to_cone(self):
+        """Servoing visual: avanzar con micro-goals cortos sobre el bearing de la
+        camara cuando el LIDAR no da un rango confiable del cono (sin retorno, o
+        retorno sobre una pared porque el cono es mas bajo que el plano del
+        LIDAR). Cada micro-goal se valida contra el mapa inflado en _emit_goal:
+        nunca cruza una pared, y ante un falso positivo tras pared se corta solo.
+        """
+        det = self._current_cone()
+        if det is None:
+            # Se perdio el cono de vista: gracia corta y de vuelta a buscar.
+            if self._elapsed() > self.cfg.verify_timeout_s:
+                self._note('cono perdido durante servoing: sigo buscando')
+                self._to_search()
+            return
+        # Blob suficientemente grande -> cono confirmado de cerca.
+        if det.area_px >= self.cfg.verify_area_px_min:
+            self._note('cono confirmado de cerca por servoing visual')
+            self._to(MissionState.DONE)
+            return
+        if self.pose is None:
+            return
+        # Emitir el proximo micro-goal solo cuando el navigator termino el anterior.
+        if self.nav_state in NAV_MOVING:
+            self.nav_moving_seen = True
+        if self.servo_goal_time is not None:
+            since = (self.get_clock().now() - self.servo_goal_time).nanoseconds * 1e-9
+        else:
+            since = 1e9
+        leg_done = (not self.servo_sent
+                    or (self.nav_state == NAV_REACHED and (self.nav_moving_seen or since > 1.5))
+                    or (self.nav_state == NAV_IDLE and self.nav_moving_seen)
+                    or since > self.cfg.goal_timeout_s)
+        if not leg_done:
+            return
+        if self.servo_count >= self.cfg.servo_max_steps:
+            self._note('servoing agoto los micro-goals sin confirmar: sigo buscando')
+            self._to_search()
+            return
+        px, py, pyaw = self.pose
+        gx, gy = micro_goal_along_bearing(px, py, pyaw, det.bearing_rad, self.cfg.servo_step_m)
+        goal_yaw = pyaw + det.bearing_rad
+        if self._emit_goal(gx, gy, goal_yaw):
+            self.servo_sent = True
+            self.servo_count += 1
+            self.nav_moving_seen = False
+            self.servo_goal_time = self.get_clock().now()
+            self._publish_cone_marker(gx, gy)
+        else:
+            # El micro-goal cae sobre el mapa inflado (pared real adelante): el
+            # cono no es alcanzable -> falso positivo o efectivamente tras pared.
+            self._note('servoing bloqueado (micro-goal no navegable): sigo buscando')
             self._to_search()
 
     def _state_navigate_to_cone(self):
