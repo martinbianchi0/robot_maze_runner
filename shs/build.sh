@@ -28,9 +28,19 @@ fi
 # de ~/.local y no encuentra catkin_pkg.
 SYS_PY="$(command -v python3.12 || command -v python3)"
 
+# turtlebot3_custom_simulation (C++, catedra) depende de turtlebot3_msgs. En las
+# maquinas del lab ese paquete no esta instalado y CMake truena, aunque el punto
+# C real ni siquiera lo usa. Si no lo encontramos, lo salteamos.
+IGNORE_ARGS=()
+if ! ros2 pkg prefix turtlebot3_msgs >/dev/null 2>&1; then
+    echo "aviso: turtlebot3_msgs no esta instalado -> ignoro turtlebot3_custom_simulation."
+    IGNORE_ARGS=(--packages-ignore turtlebot3_custom_simulation)
+fi
+
 colcon --log-base "$LOG_BASE" build --symlink-install \
     --build-base "$BUILD_BASE" \
     --install-base "$INSTALL_BASE" \
+    "${IGNORE_ARGS[@]}" \
     --cmake-args "-DPython3_EXECUTABLE=$SYS_PY"
 
 # Re-sourcear el install recien generado en esta shell.
