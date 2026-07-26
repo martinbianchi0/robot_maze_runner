@@ -7,6 +7,10 @@ El entregable principal es el informe final:
 
 - [docs/informe/Robot_Maze.pdf](docs/informe/Robot_Maze.pdf)
 
+Tres de los componentes que corren aca (MCL, FastSLAM y A*) se implementaron
+antes, uno por uno, en los TPs individuales de la materia:
+[probabilistic-robotics-from-scratch](https://github.com/martinbianchi0/probabilistic-robotics-from-scratch).
+
 ## Que hace
 
 El sistema resuelve el recorrido autonomo de un robot en un laberinto:
