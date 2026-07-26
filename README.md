@@ -110,7 +110,6 @@ docs/
   laboratorio/    evidencia del robot real y notas de validacion
   uso/            instalacion, ejecucion y comandos
   arquitectura/   vision general y paquetes
-  consignas/      enunciados originales de la catedra
   archive/        borradores y notas historicas no principales
 ```
 
