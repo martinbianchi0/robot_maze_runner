@@ -7,9 +7,11 @@ El entregable principal es el informe final:
 
 - [docs/informe/Robot_Maze.pdf](docs/informe/Robot_Maze.pdf)
 
-Tres de los componentes que corren aca (MCL, FastSLAM y A*) se implementaron
-antes, uno por uno, en los TPs individuales de la materia:
+La MCL y el A* que corren aca se implementaron antes, uno por uno, en los TPs
+individuales de la materia:
 [probabilistic-robotics-from-scratch](https://github.com/martinbianchi0/probabilistic-robotics-from-scratch).
+El SLAM de aca tambien es FastSLAM, pero sobre grilla de ocupacion; el de los TPs
+es el de landmarks, asi que se comparte el algoritmo y no la representacion del mapa.
 
 ## Que hace
 
